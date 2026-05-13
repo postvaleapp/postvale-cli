@@ -820,3 +820,35 @@ func (c *Client) VendorWatchlist() (*VendorsResp, error) {
 	}
 	return &out, nil
 }
+
+// ---- CVEs (Pro+) ----
+
+type CveFinding struct {
+	ID                string  `json:"id"`
+	MonitoredDomainID string  `json:"monitoredDomainId"`
+	Domain            *string `json:"domain,omitempty"`
+	CveID             string  `json:"cveId"`
+	Product           string  `json:"product"`
+	Version           *string `json:"version,omitempty"`
+	CVSS              *string `json:"cvss,omitempty"`
+	Severity          *string `json:"severity,omitempty"`
+	Summary           *string `json:"summary,omitempty"`
+	PublishedAt       *string `json:"publishedAt,omitempty"`
+	FirstSeenAt       string  `json:"firstSeenAt"`
+	LastSeenAt        string  `json:"lastSeenAt"`
+	Alerted           bool    `json:"alerted"`
+}
+
+type VulnerabilitiesResp struct {
+	Findings []CveFinding `json:"findings"`
+	Count    int          `json:"count"`
+	Limit    int          `json:"limit"`
+}
+
+func (c *Client) Vulnerabilities() (*VulnerabilitiesResp, error) {
+	var out VulnerabilitiesResp
+	if err := c.get("/api/v1/vulnerabilities", &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
