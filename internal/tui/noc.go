@@ -35,7 +35,19 @@ const (
 
 	// How long the border flashes red after a domain regresses to F.
 	flashDuration = 2 * time.Second
+
+	// Minimum splash visibility. The first poll usually returns in
+	// well under this; pad to a deliberate brand moment so the
+	// splash isn't a 200ms flicker.
+	splashDuration = 1500 * time.Millisecond
+
+	// Clock tick. 100ms drives animations (spinner frames, pulsing
+	// indicators, flash strobe). View only re-renders when something
+	// actually changes so this isn't expensive in practice.
+	clockTick = 100 * time.Millisecond
 )
+
+var spinnerFrames = []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
 
 var gradeBuckets = []string{"A+", "A", "B", "C", "D", "F", "-"}
 
@@ -146,14 +158,20 @@ type NocModel struct {
 	// Non-nil when the user has drilled into a domain. View() branches
 	// on this; key handling routes to handleDetailKey while it's set.
 	detailDomain *api.MonitoredDomain
+
+	// Birth time of the model. Used to keep the splash on screen for
+	// at least splashDuration so it doesn't 200ms-flash and disappear.
+	bornAt time.Time
 }
 
 func NewNoc(client *api.Client) NocModel {
+	now := time.Now()
 	return NocModel{
 		client:     client,
 		keys:       newNocKeymap(),
 		help:       help.New(),
-		now:        time.Now(),
+		now:        now,
+		bornAt:     now,
 		prevGrades: make(map[string]string),
 	}
 }
@@ -218,7 +236,7 @@ func (m NocModel) Init() tea.Cmd {
 		m.fetchFeed(),
 		nocTickEvery(pollSummary, nocTickSummaryMsg{}),
 		nocTickEvery(pollFeed, nocTickFeedMsg{}),
-		nocTickEvery(time.Second, nocTickClockMsg{}),
+		nocTickEvery(clockTick, nocTickClockMsg{}),
 	)
 }
 
@@ -232,7 +250,7 @@ func (m NocModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case nocTickClockMsg:
 		m.now = time.Now()
-		return m, nocTickEvery(time.Second, nocTickClockMsg{})
+		return m, nocTickEvery(clockTick, nocTickClockMsg{})
 
 	case nocTickSummaryMsg:
 		if m.paused {
@@ -407,7 +425,7 @@ func (m NocModel) handleDetailKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 // ----- view -----
 
 func (m NocModel) View() string {
-	if !m.loaded && m.err == nil {
+	if m.inSplash() {
 		return m.renderSplash()
 	}
 	if m.detailDomain != nil {
@@ -427,16 +445,31 @@ func (m NocModel) View() string {
 	return out
 }
 
-// renderSplash is the boot screen. Branded panel + a tagline + a
-// loading note. Shows until the first nocSummaryMsg lands (~100-500ms
-// typical), then the main view takes over.
+// inSplash returns true while the boot splash should stay visible.
+// We hold it for at least splashDuration even after data has loaded
+// so the brand moment doesn't 200ms-flash and disappear. Also stays
+// if the first poll genuinely hasn't returned yet.
+func (m NocModel) inSplash() bool {
+	if !m.loaded && m.err == nil {
+		return true
+	}
+	return time.Since(m.bornAt) < splashDuration
+}
+
+// renderSplash is the boot screen. Branded panel + a tagline + an
+// animated braille spinner. Stays for at least splashDuration; the
+// spinner advances on the 100ms clock tick so it visibly rotates
+// across the visible window rather than freezing on one frame.
 func (m NocModel) renderSplash() string {
 	title := lipgloss.NewStyle().
 		Foreground(colAmber).
 		Bold(true).
 		Render("POSTVALE  ·  NOC")
 	tagline := StyleDim.Render("live operations console")
-	loading := StyleDim.Italic(true).Render("preparing live feed…")
+
+	spinIdx := int(m.now.UnixMilli()/100) % len(spinnerFrames)
+	spinChar := lipgloss.NewStyle().Foreground(colAmber).Render(spinnerFrames[spinIdx])
+	loading := spinChar + "  " + StyleDim.Italic(true).Render("preparing live feed…")
 
 	box := lipgloss.NewStyle().
 		Border(lipgloss.DoubleBorder()).
@@ -459,10 +492,11 @@ func (m NocModel) renderShell(body string) string {
 }
 
 func (m NocModel) renderHeader() string {
-	// Pulse the live indicator on the second tick so the chrome looks
-	// alive even when no data has arrived. ○ on even seconds, ● on odd.
+	// Pulse the live indicator on 1Hz, driven by milliseconds so the
+	// alternation looks even regardless of when the operator opened
+	// the TUI. Paused shows a steady ● for unambiguous "we stopped".
 	liveDot := "●"
-	if m.now.Second()%2 == 0 {
+	if (m.now.UnixMilli()/500)%2 == 0 {
 		liveDot = "○"
 	}
 	live := StyleOK.Render(liveDot + " live")
@@ -488,10 +522,16 @@ func (m NocModel) renderHeader() string {
 		}
 	}
 	rule := strings.Repeat("─", max(0, m.width))
-	// Flash overlay: tint the rule red for the brief window after a
-	// critical regression so the eye gets pulled to the top edge.
+	// Flash overlay: pulse the rule between bright bold heavy and a
+	// dimmer thin version at 4Hz across the flashDuration window so
+	// the regression visibly throbs instead of glowing steady red.
 	if m.now.Before(m.flashUntil) {
-		rule = StyleFail.Bold(true).Render(strings.Repeat("━", max(0, m.width)))
+		w := max(0, m.width)
+		if (m.now.UnixMilli()/125)%2 == 0 {
+			rule = StyleFail.Bold(true).Render(strings.Repeat("━", w))
+		} else {
+			rule = lipgloss.NewStyle().Foreground(colRed).Render(strings.Repeat("─", w))
+		}
 	} else {
 		rule = StyleDim.Render(rule)
 	}
@@ -918,6 +958,86 @@ func activityHistogram(feed []api.RecentScan, host string, hours int, now time.T
 	return b.String()
 }
 
+// heatmap renders a 7-day × 24-hour activity grid (github-style
+// contribution graph). Each cell encodes scans seen in that
+// (day, hour) bucket: dim · for empty, brighter blocks for busier
+// hours. Bottom row is today; oldest day is at the top. Labels on
+// the left name the weekday; the bottom axis labels marker hours.
+func heatmap(feed []api.RecentScan, host string, now time.Time) string {
+	const days = 7
+	const hours = 24
+
+	counts := make([][hours]int, days)
+	for _, s := range feed {
+		if s.Host != host {
+			continue
+		}
+		t, err := time.Parse(time.RFC3339, s.RanAt)
+		if err != nil {
+			continue
+		}
+		t = t.Local()
+		dayDelta := int(now.Truncate(24*time.Hour).Sub(t.Truncate(24*time.Hour)).Hours() / 24)
+		if dayDelta < 0 || dayDelta >= days {
+			continue
+		}
+		counts[days-1-dayDelta][t.Hour()]++
+	}
+	maxC := 1
+	for _, row := range counts {
+		for _, c := range row {
+			if c > maxC {
+				maxC = c
+			}
+		}
+	}
+
+	weekdays := []string{"Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"}
+	todayIdx := int(now.Weekday())
+
+	var b strings.Builder
+	for i := 0; i < days; i++ {
+		// Row 0 is the oldest (6 days ago); row days-1 is today.
+		dayOffset := days - 1 - i
+		weekdayIdx := (todayIdx - dayOffset + 7) % 7
+		b.WriteString(StyleDim.Render(weekdays[weekdayIdx] + " "))
+		for h := 0; h < hours; h++ {
+			c := counts[i][h]
+			switch {
+			case c == 0:
+				b.WriteString(StyleDim.Render("·"))
+			case c == 1:
+				b.WriteString(lipgloss.NewStyle().Foreground(colEmerald).Render("▪"))
+			case c*3 < maxC*2:
+				b.WriteString(lipgloss.NewStyle().Foreground(colEmerald).Bold(true).Render("▪"))
+			default:
+				b.WriteString(lipgloss.NewStyle().Foreground(colEmerald).Bold(true).Render("█"))
+			}
+		}
+		b.WriteString("\n")
+	}
+	// Hour axis.
+	b.WriteString(StyleDim.Render("    "))
+	for h := 0; h < hours; h++ {
+		switch h {
+		case 0, 6, 12, 18:
+			b.WriteString(StyleDim.Render(fmt.Sprintf("%-1d", h/10)))
+		default:
+			b.WriteString(StyleDim.Render(" "))
+		}
+	}
+	b.WriteString("\n    ")
+	for h := 0; h < hours; h++ {
+		switch h {
+		case 0, 6, 12, 18:
+			b.WriteString(StyleDim.Render(fmt.Sprintf("%d", h%10)))
+		default:
+			b.WriteString(StyleDim.Render(" "))
+		}
+	}
+	return b.String()
+}
+
 // gradeBlock maps a letter grade to a Unicode partial-block character
 // of proportional height. Used by the sparkline + the detail view so
 // the visual is consistent.
@@ -1192,6 +1312,12 @@ func (m NocModel) renderDetail() string {
 		activity.String(),
 	)
 	out.WriteString(twoCol + "\n\n")
+
+	// Weekly heatmap - 7×24 grid of scans per (day, hour) for this
+	// host. Reveals cadence patterns at a glance (e.g. "this domain
+	// scans hourly on weekdays, nothing weekends").
+	out.WriteString(StyleHeader.Render("Scan heatmap (last 7 days)") + "\n")
+	out.WriteString(heatmap(m.feed, d.Host, m.now) + "\n\n")
 
 	// Recent scans list.
 	out.WriteString(StyleHeader.Render("Recent scans") + "\n")
