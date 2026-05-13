@@ -28,7 +28,7 @@ signed-in surface, no browser required.
 Pages have their own key bindings; ? on a page shows the legend.
 
 Start on a specific page with --page <name>:
-  dashboard | noc | alerts | brand | leak | creds | tools | verify | account`,
+  dashboard | noc | alerts | brand | leak | creds | vendors | tools | verify | account`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			client, err := newClient()
 			if err != nil {
@@ -57,7 +57,7 @@ Start on a specific page with --page <name>:
 		},
 	}
 	cmd.Flags().StringVar(&startPage, "page", "dashboard",
-		"Page to land on: dashboard | noc | alerts | brand | leak | creds | tools | verify | account")
+		"Page to land on: dashboard | noc | alerts | brand | leak | creds | vendors | tools | verify | account")
 	return cmd
 }
 
@@ -76,6 +76,8 @@ func parseShellPage(s string) (tui.ShellPage, error) {
 		return tui.PageLeak, nil
 	case "creds", "credentials", "credential-leaks":
 		return tui.PageCreds, nil
+	case "vendors", "vendor-watch", "vendor-watchlist":
+		return tui.PageVendors, nil
 	case "tools":
 		return tui.PageTools, nil
 	case "verify":

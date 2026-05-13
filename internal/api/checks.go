@@ -777,3 +777,46 @@ func (c *Client) CredentialLeaks() (*CredentialLeaksResp, error) {
 	}
 	return &out, nil
 }
+
+// ---- vendor watchlist (Pro+) ----
+
+// VendorSnapshot is the loose JSON the worker writes after each scan.
+// Fields are optional so the API surface stays stable as the worker
+// evolves. Today's keys: capturedAt, overall, worst, threatIntel.
+type VendorSnapshot struct {
+	CapturedAt  string               `json:"capturedAt,omitempty"`
+	Overall     string               `json:"overall,omitempty"`
+	Worst       map[string]string    `json:"worst,omitempty"`
+	ThreatIntel *VendorThreatSummary `json:"threatIntel,omitempty"`
+}
+
+type VendorThreatSummary struct {
+	Listed  *bool  `json:"listed,omitempty"`
+	Summary string `json:"summary,omitempty"`
+	Grade   string `json:"grade,omitempty"`
+}
+
+type VendorSubscription struct {
+	ID            string          `json:"id"`
+	Domain        string          `json:"domain"`
+	Label         *string         `json:"label,omitempty"`
+	Notes         *string         `json:"notes,omitempty"`
+	IsActive      bool            `json:"isActive"`
+	LastSnapshot  *VendorSnapshot `json:"lastSnapshot,omitempty"`
+	LastScannedAt *string         `json:"lastScannedAt,omitempty"`
+	LastError     *string         `json:"lastError,omitempty"`
+	CreatedAt     string          `json:"createdAt"`
+}
+
+type VendorsResp struct {
+	Vendors []VendorSubscription `json:"vendors"`
+	Count   int                  `json:"count"`
+}
+
+func (c *Client) VendorWatchlist() (*VendorsResp, error) {
+	var out VendorsResp
+	if err := c.get("/api/v1/vendors", &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
