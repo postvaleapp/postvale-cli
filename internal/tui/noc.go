@@ -84,7 +84,7 @@ func newNocKeymap() nocKeymap {
 		Quit:    key.NewBinding(key.WithKeys("q", "ctrl+c"), key.WithHelp("q", "quit")),
 		Up:      key.NewBinding(key.WithKeys("up", "k"), key.WithHelp("↑/k", "up")),
 		Down:    key.NewBinding(key.WithKeys("down", "j"), key.WithHelp("↓/j", "down")),
-		Enter:   key.NewBinding(key.WithKeys("enter"), key.WithHelp("enter", "open in browser")),
+		Enter:   key.NewBinding(key.WithKeys("enter"), key.WithHelp("enter", "open detail")),
 		Search:  key.NewBinding(key.WithKeys("/"), key.WithHelp("/", "search")),
 		Sort:    key.NewBinding(key.WithKeys("s"), key.WithHelp("s", "cycle sort")),
 		Compact: key.NewBinding(key.WithKeys("c"), key.WithHelp("c", "compact layout")),
@@ -142,6 +142,10 @@ type NocModel struct {
 	// border briefly when a domain just went critical.
 	prevGrades map[string]string
 	flashUntil time.Time
+
+	// Non-nil when the user has drilled into a domain. View() branches
+	// on this; key handling routes to handleDetailKey while it's set.
+	detailDomain *api.MonitoredDomain
 }
 
 func NewNoc(client *api.Client) NocModel {
@@ -309,6 +313,12 @@ func (m NocModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m NocModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	// Detail-view captures keys before anything else so esc / b / r
+	// map to the detail-pane bindings instead of the main keymap.
+	if m.detailDomain != nil {
+		return m.handleDetailKey(msg)
+	}
+
 	// Search-mode swallows printable input so a `/` in a domain name
 	// can be typed. Escape exits + clears, Enter exits + keeps the
 	// filter, Backspace deletes a char.
@@ -356,7 +366,8 @@ func (m NocModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case key.Matches(msg, m.keys.Enter):
 		doms := m.visibleDomains()
 		if m.cursor < len(doms) {
-			openURL(m.client.BaseURL() + "/dashboard/" + doms[m.cursor].ID)
+			d := doms[m.cursor]
+			m.detailDomain = &d
 		}
 	case key.Matches(msg, m.keys.Search):
 		m.searchMode = true
@@ -375,11 +386,32 @@ func (m NocModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+// handleDetailKey is the keymap while a domain detail view is open.
+// Intentionally small: back out, escalate to browser, refresh, quit.
+func (m NocModel) handleDetailKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "esc", "q":
+		m.detailDomain = nil
+	case "b":
+		if m.detailDomain != nil {
+			openURL(m.client.BaseURL() + "/dashboard/" + m.detailDomain.ID)
+		}
+	case "r":
+		return m, tea.Batch(m.fetchSummary(), m.fetchFeed())
+	case "ctrl+c":
+		return m, tea.Quit
+	}
+	return m, nil
+}
+
 // ----- view -----
 
 func (m NocModel) View() string {
 	if !m.loaded && m.err == nil {
 		return m.renderShell("\n  " + StyleDim.Render("loading…") + "\n")
+	}
+	if m.detailDomain != nil {
+		return m.renderShell(m.renderDetail())
 	}
 	body := m.renderStatsBar() + "\n\n" + m.renderPanes()
 	if m.now.Before(m.legendUntil) {
@@ -439,6 +471,11 @@ func (m NocModel) renderFooter() string {
 	var errLine string
 	if m.err != nil {
 		errLine = StyleFail.Render("! "+m.err.Error()) + "\n"
+	}
+	if m.detailDomain != nil {
+		return errLine + StyleDim.Render(
+			"b open in browser · esc back · r refresh · q quit",
+		)
 	}
 	return errLine + m.help.View(m.keys)
 }
@@ -704,10 +741,13 @@ func (m NocModel) renderDomains(maxLines int) string {
 	return b.String()
 }
 
-// sparkline renders an N-block strip per domain row. Blocks are
-// coloured by the worst grade of each recent scan, oldest on the left
-// + newest on the right, padded with dim blocks when there's not
-// enough history yet (typical at session start; fills in as scans land).
+// sparkline renders an N-cell trend strip per domain row. Bar height
+// encodes grade quality (A+ tallest, F shortest) AND colour encodes
+// severity (green / amber / red). Together that means a row of D/F
+// scans reads as short red bars `▁▂▁▁▂` instead of a slab of full
+// blocks; a row of A grades reads as tall green bars. Padding for
+// hosts with not enough scan history yet uses a dim middle dot so
+// "no data yet" is visually distinct from any real grade.
 func sparkline(feed []api.RecentScan, host string, n int) string {
 	var scans []api.RecentScan
 	for _, s := range feed {
@@ -726,16 +766,38 @@ func sparkline(feed []api.RecentScan, host string, n int) string {
 	pad := n - len(scans)
 	var b strings.Builder
 	for i := 0; i < pad; i++ {
-		b.WriteString(StyleDim.Render("▁"))
+		b.WriteString(StyleDim.Render("·"))
 	}
 	for _, s := range scans {
 		g := s.WorstGrade
 		if g == "" {
 			g = "-"
 		}
-		b.WriteString(GradeStyle(g).Render("█"))
+		b.WriteString(GradeStyle(g).Render(gradeBlock(g)))
 	}
 	return b.String()
+}
+
+// gradeBlock maps a letter grade to a Unicode partial-block character
+// of proportional height. Used by the sparkline + the detail view so
+// the visual is consistent.
+func gradeBlock(g string) string {
+	switch g {
+	case "A+":
+		return "█"
+	case "A":
+		return "▇"
+	case "B":
+		return "▅"
+	case "C":
+		return "▄"
+	case "D":
+		return "▂"
+	case "F":
+		return "▁"
+	default:
+		return "·"
+	}
 }
 
 func subGrade(grades map[string]string, key string, width int) string {
@@ -841,9 +903,9 @@ func filterFeed(in []api.RecentScan, q string) []api.RecentScan {
 func (m NocModel) renderHelpOverlay(under string) string {
 	rows := [][2]string{
 		{"↑/k, ↓/j", "move cursor through domains"},
-		{"enter", "open selected domain in browser"},
+		{"enter", "open per-domain detail view"},
 		{"/", "search filter (domains + feed)"},
-		{"esc", "exit search / close help"},
+		{"esc", "exit search / close help / leave detail"},
 		{"s", "cycle sort: worst → host → newest → stale"},
 		{"c", "compact layout (single column)"},
 		{"b", "toggle bell on critical regression"},
@@ -852,6 +914,8 @@ func (m NocModel) renderHelpOverlay(under string) string {
 		{"r", "refresh now"},
 		{"?", "toggle this help"},
 		{"q", "quit"},
+		{"", ""},
+		{"in detail:", "b open in browser · esc back · r refresh"},
 	}
 	var b strings.Builder
 	b.WriteString(StyleHeader.Render("KEY BINDINGS") + "\n")
@@ -892,6 +956,136 @@ func (m NocModel) renderLegend() string {
 	}
 	bell := "bell: " + boolLabel(m.bellEnabled)
 	return "  " + strings.Join(parts, "   ") + "   " + StyleDim.Render(bell)
+}
+
+// renderDetail draws the per-domain drill-in view. Triggered by Enter
+// on the cursor row; escapes back to the main view with esc. Shows
+// summary grade + sub-grades, the recent scan timeline for that host
+// (sparkline + list), and any action-queue items scoped to this
+// domain.
+func (m NocModel) renderDetail() string {
+	d := *m.detailDomain
+	var b strings.Builder
+
+	hostPort := d.Host
+	if d.Port != 443 {
+		hostPort = fmt.Sprintf("%s:%d", d.Host, d.Port)
+	}
+
+	// Title strip.
+	title := StyleHeader.Render("DOMAIN · " + hostPort)
+	b.WriteString(title + "\n")
+	b.WriteString(StyleDim.Render(strings.Repeat("─", max(20, lipgloss.Width(title)))) + "\n\n")
+
+	// Worst grade + last-scanned at.
+	grade := d.LastWorstGrade
+	if grade == "" {
+		grade = "-"
+	}
+	last := "-"
+	if d.LastCheckedAt != nil {
+		last = formatAgo(m.now.Sub(parseTime(*d.LastCheckedAt))) + " ago"
+	}
+	b.WriteString(fmt.Sprintf("%s  %s   %s  %s\n\n",
+		StyleDim.Render("Worst grade:"),
+		GradeStyle(grade).Bold(true).Render(padRight(grade, 3)),
+		StyleDim.Render("Last scan:"),
+		StyleStrong.Render(last),
+	))
+
+	// Sub-grade table - one row per tool.
+	b.WriteString(StyleHeader.Render("Sub-grades") + "\n")
+	tools := []struct {
+		key, label string
+	}{
+		{"tls", "TLS"},
+		{"dmarc", "DMARC"},
+		{"dns", "DNS"},
+		{"headers", "Headers"},
+		{"mtaSts", "MTA-STS"},
+	}
+	for _, t := range tools {
+		g := ""
+		if d.LastGrades != nil {
+			g = d.LastGrades[t.key]
+			if g == "" && t.key == "mtaSts" {
+				g = d.LastGrades["mta-sts"]
+			}
+		}
+		if g == "" {
+			g = "-"
+		}
+		b.WriteString(fmt.Sprintf("  %s  %s\n",
+			padRight(t.label, 10),
+			GradeStyle(g).Render(padRight(g, 3)),
+		))
+	}
+	b.WriteString("\n")
+
+	// Recent scan history for this host: sparkline strip + last-10
+	// chronological list.
+	b.WriteString(StyleHeader.Render("Recent scans") + "  ")
+	b.WriteString(sparkline(m.feed, d.Host, 16))
+	b.WriteString(StyleDim.Render("   (oldest → newest, this session)") + "\n")
+	var scans []api.RecentScan
+	for _, s := range m.feed {
+		if s.Host == d.Host {
+			scans = append(scans, s)
+			if len(scans) >= 10 {
+				break
+			}
+		}
+	}
+	if len(scans) == 0 {
+		b.WriteString("  " + StyleDim.Render("no scans observed yet in this session - they'll appear here as they run") + "\n")
+	} else {
+		for _, s := range scans {
+			g := s.WorstGrade
+			if g == "" {
+				g = "-"
+			}
+			b.WriteString(fmt.Sprintf("  %s  %s  %s\n",
+				StyleDim.Render(formatClock(s.RanAt)),
+				GradeStyle(g).Render(padRight(g, 3)),
+				StyleDim.Render(fmt.Sprintf("%dms", s.DurationMs)),
+			))
+		}
+	}
+	b.WriteString("\n")
+
+	// Action items scoped to this domain. Match by host substring on
+	// the queue item's Domain field (server stores "host:port").
+	if m.summary != nil {
+		var items []api.ActionQueueItem
+		for _, it := range m.summary.ActionQueue {
+			if strings.Contains(it.Domain, d.Host) {
+				items = append(items, it)
+			}
+		}
+		if len(items) > 0 {
+			b.WriteString(StyleHeader.Render("Open action items") + "\n")
+			for _, it := range items {
+				age := formatAgo(m.now.Sub(parseTime(it.DetectedAt)))
+				b.WriteString(fmt.Sprintf("  %s  %s  %s\n",
+					severityDot(it.Severity),
+					StyleStrong.Render(it.Message),
+					StyleDim.Render(age),
+				))
+			}
+			b.WriteString("\n")
+		}
+	}
+
+	// Domain plumbing info - cadence + paused state. Last line so the
+	// footer hint still lands in the operator's eye.
+	cadence := fmt.Sprintf("every %dm", d.CadenceMinutes)
+	paused := ""
+	if d.Paused {
+		paused = StyleWarn.Render("  · paused")
+	}
+	b.WriteString(StyleDim.Render(fmt.Sprintf("Scan cadence: %s%s", cadence, paused)) + "\n")
+
+	return b.String()
 }
 
 func (m NocModel) renderSearchBar() string {
