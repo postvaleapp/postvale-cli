@@ -1,0 +1,21 @@
+# Compiled binaries
+/postvale
+/postvale.exe
+/dist/
+
+# Editor noise
+.idea/
+.vscode/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+
+# Test output
+*.out
+coverage.txt
+coverage.html
+
+# Local credentials (in case anyone runs login + stores under repo for testing)
+.postvale/
+postvale-token.txt

@@ -1,0 +1,122 @@
+# GoReleaser config for postvale-cli.
+#
+# Run a local dry-build with:
+#   goreleaser release --snapshot --clean
+#
+# Tagged release flow:
+#   git tag -a v0.1.0 -m "v0.1.0"
+#   git push origin v0.1.0
+# CI picks up the tag, runs GoReleaser, publishes binaries +
+# Homebrew formula + Scoop manifest.
+
+version: 2
+
+project_name: postvale
+
+before:
+  hooks:
+    - go mod tidy
+
+builds:
+  - id: postvale
+    main: ./cmd/postvale
+    binary: postvale
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - darwin
+      - windows
+    goarch:
+      - amd64
+      - arm64
+    ldflags:
+      - -s -w
+      - -X github.com/postvaleapp/postvale-cli/internal/version.Version={{.Version}}
+      - -X github.com/postvaleapp/postvale-cli/internal/version.Commit={{.Commit}}
+      - -X github.com/postvaleapp/postvale-cli/internal/version.Date={{.Date}}
+
+archives:
+  - id: default
+    formats: [tar.gz]
+    name_template: >-
+      {{- .ProjectName }}_{{ .Version }}_
+      {{- title .Os }}_
+      {{- if eq .Arch "amd64" }}x86_64
+      {{- else if eq .Arch "386" }}i386
+      {{- else }}{{ .Arch }}{{ end }}
+    format_overrides:
+      - goos: windows
+        formats: [zip]
+    files:
+      - LICENSE
+      - README.md
+      - CHANGELOG.md
+
+checksum:
+  name_template: 'checksums.txt'
+
+snapshot:
+  version_template: '{{ incpatch .Version }}-next'
+
+changelog:
+  use: github
+  sort: asc
+  groups:
+    - title: Features
+      regexp: '^.*?feat(\(.+\))??!?:.+$'
+      order: 0
+    - title: Fixes
+      regexp: '^.*?fix(\(.+\))??!?:.+$'
+      order: 1
+    - title: Others
+      order: 999
+
+# --- Homebrew tap ---
+# Requires postvaleapp/homebrew-tap repo + HOMEBREW_TAP_TOKEN secret.
+# Commented until the tap exists; flip on when ready.
+#
+# brews:
+#   - name: postvale
+#     repository:
+#       owner: postvaleapp
+#       name: homebrew-tap
+#       token: '{{ .Env.HOMEBREW_TAP_TOKEN }}'
+#     homepage: https://postvale.app
+#     description: 'CLI for Postvale - TLS, DMARC, DNS, threat-intel, and audit evidence'
+#     license: MIT
+#     install: bin.install "postvale"
+#     test: |
+#       system "#{bin}/postvale", "version"
+
+# --- Scoop bucket ---
+# Same shape as Homebrew. Flip on when postvaleapp/scoop-bucket exists.
+#
+# scoops:
+#   - name: postvale
+#     repository:
+#       owner: postvaleapp
+#       name: scoop-bucket
+#       token: '{{ .Env.SCOOP_BUCKET_TOKEN }}'
+#     homepage: https://postvale.app
+#     description: 'CLI for Postvale - TLS, DMARC, DNS, threat-intel, and audit evidence'
+#     license: MIT
+
+# --- nfpm (deb / rpm) ---
+nfpms:
+  - id: linux-pkgs
+    package_name: postvale
+    vendor: Postvale
+    homepage: https://postvale.app
+    maintainer: Postvale <support@postvale.io>
+    description: |
+      Postvale CLI - TLS, DMARC, DNS, threat-intel, and audit evidence
+      for any public domain. Free read-only checks; sign in for
+      monitoring + workpapers.
+    license: MIT
+    formats:
+      - deb
+      - rpm
+      - apk
+    bindir: /usr/bin
+    section: net
