@@ -162,6 +162,11 @@ type NocModel struct {
 	// Birth time of the model. Used to keep the splash on screen for
 	// at least splashDuration so it doesn't 200ms-flash and disappear.
 	bornAt time.Time
+
+	// Wall-clock duration of the most recent summary + list-domains
+	// round trip. Surfaced in the header as a latency badge - cheap
+	// API-health signal disguised as decoration.
+	lastLatency time.Duration
 }
 
 func NewNoc(client *api.Client) NocModel {
@@ -182,6 +187,7 @@ type nocSummaryMsg struct {
 	summary *api.DashboardSummary
 	domains []api.MonitoredDomain
 	err     error
+	latency time.Duration
 }
 
 type nocFeedMsg struct {
@@ -196,12 +202,18 @@ type nocTickClockMsg struct{}
 func (m NocModel) fetchSummary() tea.Cmd {
 	c := m.client
 	return func() tea.Msg {
+		start := time.Now()
 		summary, err := c.DashboardSummary()
 		if err != nil {
-			return nocSummaryMsg{err: err}
+			return nocSummaryMsg{err: err, latency: time.Since(start)}
 		}
 		doms, err := c.ListDomains()
-		return nocSummaryMsg{summary: summary, domains: doms, err: err}
+		return nocSummaryMsg{
+			summary: summary,
+			domains: doms,
+			err:     err,
+			latency: time.Since(start),
+		}
 	}
 }
 
@@ -265,6 +277,9 @@ func (m NocModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, tea.Batch(m.fetchFeed(), nocTickEvery(pollFeed, nocTickFeedMsg{}))
 
 	case nocSummaryMsg:
+		if msg.latency > 0 {
+			m.lastLatency = msg.latency
+		}
 		if msg.err != nil {
 			m.err = msg.err
 			return m, nil
@@ -456,15 +471,43 @@ func (m NocModel) inSplash() bool {
 	return time.Since(m.bornAt) < splashDuration
 }
 
+// gradientText renders s with a horizontal foreground gradient
+// stepping through the supplied palette. Whitespace passes through
+// unstyled to keep the line breaking sensibly.
+func gradientText(s string, palette []string, bold bool) string {
+	runes := []rune(s)
+	if len(runes) == 0 || len(palette) == 0 {
+		return s
+	}
+	var b strings.Builder
+	for i, r := range runes {
+		if r == ' ' {
+			b.WriteRune(r)
+			continue
+		}
+		idx := i * len(palette) / len(runes)
+		if idx >= len(palette) {
+			idx = len(palette) - 1
+		}
+		style := lipgloss.NewStyle().Foreground(lipgloss.Color(palette[idx]))
+		if bold {
+			style = style.Bold(true)
+		}
+		b.WriteString(style.Render(string(r)))
+	}
+	return b.String()
+}
+
 // renderSplash is the boot screen. Branded panel + a tagline + an
 // animated braille spinner. Stays for at least splashDuration; the
 // spinner advances on the 100ms clock tick so it visibly rotates
 // across the visible window rather than freezing on one frame.
 func (m NocModel) renderSplash() string {
-	title := lipgloss.NewStyle().
-		Foreground(colAmber).
-		Bold(true).
-		Render("POSTVALE  ·  NOC")
+	// Amber-spectrum gradient on the title - lightest at the left,
+	// darkest at the right. Reads as a polished brand mark rather
+	// than a uniform-colour string.
+	palette := []string{"#FEF3C7", "#FDE68A", "#FCD34D", "#FBBF24", "#F59E0B", "#D97706"}
+	title := gradientText("POSTVALE  ·  NOC", palette, true)
 	tagline := StyleDim.Render("live operations console")
 
 	spinIdx := int(m.now.UnixMilli()/100) % len(spinnerFrames)
@@ -509,7 +552,9 @@ func (m NocModel) renderHeader() string {
 		syncedAgo = formatAgo(m.now.Sub(m.lastSync)) + " ago"
 	}
 	left := StyleHeader.Render("POSTVALE · NOC")
-	right := fmt.Sprintf("%s  %s  %s",
+	latency := m.renderLatencyBadge()
+	right := fmt.Sprintf("%s  %s  %s  %s",
+		latency,
 		clock,
 		live,
 		StyleDim.Render("synced "+syncedAgo),
@@ -536,6 +581,26 @@ func (m NocModel) renderHeader() string {
 		rule = StyleDim.Render(rule)
 	}
 	return left + pad + right + "\n" + rule + "\n"
+}
+
+// renderLatencyBadge formats the last summary round-trip duration as
+// a small coloured chip. Green under 200ms, amber up to 800ms, red
+// above. Hidden until the first real measurement lands so the header
+// doesn't show a misleading "0ms" before the first poll completes.
+func (m NocModel) renderLatencyBadge() string {
+	if m.lastLatency == 0 {
+		return ""
+	}
+	ms := m.lastLatency.Milliseconds()
+	label := fmt.Sprintf("%dms", ms)
+	switch {
+	case ms < 200:
+		return StyleOK.Render(label)
+	case ms < 800:
+		return StyleWarn.Render(label)
+	default:
+		return StyleFail.Render(label)
+	}
 }
 
 func (m NocModel) renderFooter() string {
@@ -790,7 +855,13 @@ func (m NocModel) renderDomains(maxLines int) string {
 
 		prefix := "  "
 		if i == cursor {
-			prefix = StyleHeader.Render("❯ ")
+			// Twinkle the chevron at ~2.5Hz so the selected row reads
+			// as the active focus even when no input is happening.
+			if (m.now.UnixMilli()/400)%2 == 0 {
+				prefix = StyleHeader.Render("❯ ")
+			} else {
+				prefix = lipgloss.NewStyle().Foreground(colAmberMid).Render("❯ ")
+			}
 		}
 		b.WriteString(prefix)
 		hostCell := truncate(host, 26)
@@ -1374,7 +1445,12 @@ func (m NocModel) renderSearchBar() string {
 	prompt := StyleHeader.Render("/")
 	input := m.searchInput
 	if m.searchMode {
-		input += StyleWarn.Render("_")
+		// Blink the input cursor at 2Hz so it reads as a live caret.
+		if (m.now.UnixMilli()/500)%2 == 0 {
+			input += StyleWarn.Bold(true).Render("▏")
+		} else {
+			input += " "
+		}
 	}
 	hint := ""
 	if m.searchMode {
