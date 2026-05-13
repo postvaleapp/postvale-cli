@@ -252,9 +252,11 @@ func (s Shell) handleSidebarKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			s.active = target
 			s.sidebarFocused = false
 			ns, cmd := s.ensurePage(target)
-			// On first mount, also forward the current window size so
-			// the new page lays out at the right width on first paint.
-			if cmd != nil && s.width > 0 {
+			// Always forward the current window size after navigation.
+			// Pages with no Init Cmd (Tools, Verify) won't otherwise
+			// receive a WindowSizeMsg until the next terminal resize,
+			// which means their viewports stay 0x0 and render nothing.
+			if s.width > 0 {
 				sub := tea.WindowSizeMsg{
 					Width:  pageContentWidth(s.width),
 					Height: s.height,

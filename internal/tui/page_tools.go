@@ -318,16 +318,23 @@ func (m ToolsPage) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, m.domain.Focus()
 			}
 		case "up", "k":
-			if m.focus == focusList && m.cursor > 0 {
-				m.cursor--
+			// Only steer the list cursor when the list is focused. When
+			// the domain input is focused, "k" is just a letter the
+			// user is typing; fall through so the textinput sees it.
+			if m.focus == focusList {
+				if m.cursor > 0 {
+					m.cursor--
+				}
+				return m, nil
 			}
-			return m, nil
 		case "down", "j":
-			flat := flatTools(m.catalog)
-			if m.focus == focusList && m.cursor < len(flat)-1 {
-				m.cursor++
+			if m.focus == focusList {
+				flat := flatTools(m.catalog)
+				if m.cursor < len(flat)-1 {
+					m.cursor++
+				}
+				return m, nil
 			}
-			return m, nil
 		case "enter":
 			flat := flatTools(m.catalog)
 			if m.cursor >= len(flat) || m.running {
