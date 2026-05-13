@@ -107,6 +107,8 @@ or to a file.
 func newAuditVerifyCommand() *cobra.Command {
 	var (
 		anchorHead string
+		merkleRoot string
+		proofPath  string
 		fetchLive  bool
 	)
 	cmd := &cobra.Command{
@@ -118,14 +120,17 @@ at https://postvale.app/docs/verify. No Postvale account required.
   postvale audit verify chain.jsonl
   postvale audit verify chain.jsonl --anchor <hex>
   postvale audit verify chain.jsonl --fetch-anchor
+  postvale audit verify chain.jsonl --merkle-root <hex> --inclusion-proof proof.json
 
 The verifier:
   1. Parses the file as JSONL (or a JSON array).
-  2. Re-computes each row's sha256(canonical_json(fields || prev_hash))
-     and compares to the stored row_hash.
-  3. Asserts each row's prev_hash links to the previous row's row_hash.
-  4. Optionally compares the computed final hash to a known anchor
-     head (paste with --anchor or fetch live with --fetch-anchor).
+  2. Re-computes each row's global + per-user sha256 chain and
+     compares to the stored row_hash / user_row_hash.
+  3. Asserts prev_hash linkage on both chains.
+  4. Optionally compares the global head to a known anchor head
+     (--anchor) or the live head (--fetch-anchor).
+  5. Optionally walks a v3 Merkle inclusion proof and confirms it
+     reconstructs to the supplied --merkle-root.
 
 Exit code 0 on PASS, 1 on FAIL. Use --json to get machine output.`,
 		Args: cobra.ExactArgs(1),
@@ -150,7 +155,28 @@ Exit code 0 on PASS, 1 on FAIL. Use --json to get machine output.`,
 				anchor = strings.TrimSpace(anchorHead)
 			}
 
+			var merkleProof *merkleInclusionProof
+			if proofPath != "" {
+				p, err := loadInclusionProof(proofPath)
+				if err != nil {
+					return fmt.Errorf("inclusion proof: %w", err)
+				}
+				merkleProof = p
+			}
+
 			res := verifyChain(rows, anchor)
+			if merkleProof != nil && merkleRoot != "" {
+				ok, computed := verifyMerkleInclusion(*merkleProof, strings.TrimSpace(merkleRoot))
+				res.MerkleInclusion = &merkleInclusionResult{
+					OK:           ok,
+					ComputedRoot: computed,
+					ExpectedRoot: strings.TrimSpace(merkleRoot),
+				}
+				if !ok {
+					res.OK = false
+				}
+			}
+
 			if Globals().JSON {
 				return json.NewEncoder(os.Stdout).Encode(res)
 			}
@@ -163,7 +189,58 @@ Exit code 0 on PASS, 1 on FAIL. Use --json to get machine output.`,
 	}
 	cmd.Flags().StringVar(&anchorHead, "anchor", "", "Expected anchor head hash")
 	cmd.Flags().BoolVar(&fetchLive, "fetch-anchor", false, "Fetch live head from /api/v1/audit/anchors")
+	cmd.Flags().StringVar(&merkleRoot, "merkle-root", "", "Expected v3 Merkle root (hex)")
+	cmd.Flags().StringVar(&proofPath, "inclusion-proof", "", "Path to JSON inclusion proof for the per-user head")
 	return cmd
+}
+
+type merkleInclusionProof struct {
+	Leaf string `json:"leaf"`
+	Path []struct {
+		Hash string `json:"hash"`
+		Side string `json:"side"`
+	} `json:"path"`
+}
+
+type merkleInclusionResult struct {
+	OK           bool   `json:"ok"`
+	ComputedRoot string `json:"computedRoot"`
+	ExpectedRoot string `json:"expectedRoot"`
+}
+
+func loadInclusionProof(path string) (*merkleInclusionProof, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	var p merkleInclusionProof
+	if err := json.Unmarshal(data, &p); err != nil {
+		return nil, fmt.Errorf("parse proof JSON: %w", err)
+	}
+	return &p, nil
+}
+
+func verifyMerkleInclusion(p merkleInclusionProof, expectedRoot string) (bool, string) {
+	acc, err := hex.DecodeString(p.Leaf)
+	if err != nil {
+		return false, ""
+	}
+	for _, step := range p.Path {
+		sib, err := hex.DecodeString(step.Hash)
+		if err != nil {
+			return false, ""
+		}
+		var concat []byte
+		if step.Side == "L" {
+			concat = append(append([]byte{}, sib...), acc...)
+		} else {
+			concat = append(append([]byte{}, acc...), sib...)
+		}
+		sum := sha256.Sum256(concat)
+		acc = sum[:]
+	}
+	computed := hex.EncodeToString(acc)
+	return computed == expectedRoot, computed
 }
 
 // ----- chain math (mirrors src/lib/audit-chain.ts in the webapp) -----
@@ -328,8 +405,9 @@ type verifyResult struct {
 		Declared string `json:"declared"`
 		Computed string `json:"computed"`
 	} `json:"firstMismatch,omitempty"`
-	PerUser    []perUserChainResult `json:"perUser,omitempty"`
-	DurationMs int64                `json:"durationMs"`
+	PerUser         []perUserChainResult   `json:"perUser,omitempty"`
+	MerkleInclusion *merkleInclusionResult `json:"merkleInclusion,omitempty"`
+	DurationMs      int64                  `json:"durationMs"`
 }
 
 type perUserChainResult struct {
@@ -483,6 +561,16 @@ func printVerifyResult(r verifyResult) {
 				fmt.Printf("  (mismatch at row %d)", u.FirstMismatchRowID)
 			}
 			fmt.Println()
+		}
+	}
+	if r.MerkleInclusion != nil {
+		fmt.Println()
+		if r.MerkleInclusion.OK {
+			fmt.Println("  \033[32m✓\033[0m Merkle inclusion proof reconstructs to the expected root")
+		} else {
+			fmt.Println("  \033[31m✗\033[0m Merkle inclusion proof did NOT match the expected root")
+			fmt.Printf("    computed: %s\n", r.MerkleInclusion.ComputedRoot)
+			fmt.Printf("    expected: %s\n", r.MerkleInclusion.ExpectedRoot)
 		}
 	}
 	fmt.Println()
