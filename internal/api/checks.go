@@ -146,20 +146,26 @@ type BlacklistListing struct {
 
 type HeadersCheck struct {
 	CheckSummary
-	URL             string      `json:"url,omitempty"`
-	StatusCode      int         `json:"statusCode,omitempty"`
-	HSTS            *HSTSInfo   `json:"hsts,omitempty"`
-	CSP             *HeaderInfo `json:"csp,omitempty"`
-	XFrameOptions   *HeaderInfo `json:"xFrameOptions,omitempty"`
-	XContentType    *HeaderInfo `json:"xContentType,omitempty"`
-	ReferrerPolicy  *HeaderInfo `json:"referrerPolicy,omitempty"`
-	PermissionsPol  *HeaderInfo `json:"permissionsPolicy,omitempty"`
-	COOP            *HeaderInfo `json:"coop,omitempty"`
-	COEP            *HeaderInfo `json:"coep,omitempty"`
-	CORP            *HeaderInfo `json:"corp,omitempty"`
-	ServerDisclose  string      `json:"serverDisclosure,omitempty"`
-	Warnings        []string    `json:"warnings"`
-	Recommendations []string    `json:"recommendations"`
+	URL             string            `json:"url,omitempty"`
+	StatusCode      int               `json:"statusCode,omitempty"`
+	HSTS            *HSTSInfo         `json:"hsts,omitempty"`
+	CSP             *HeaderInfo       `json:"csp,omitempty"`
+	XFrameOptions   *HeaderInfo       `json:"xFrameOptions,omitempty"`
+	XContentType    *HeaderInfo       `json:"xContentType,omitempty"`
+	ReferrerPolicy  *HeaderInfo       `json:"referrerPolicy,omitempty"`
+	PermissionsPol  *HeaderInfo       `json:"permissionsPolicy,omitempty"`
+	COOP            *HeaderInfo       `json:"coop,omitempty"`
+	COEP            *HeaderInfo       `json:"coep,omitempty"`
+	CORP            *HeaderInfo       `json:"corp,omitempty"`
+	ServerDisclose  *ServerDisclosure `json:"serverDisclosure,omitempty"`
+	Warnings        []string          `json:"warnings"`
+	Recommendations []string          `json:"recommendations"`
+}
+
+type ServerDisclosure struct {
+	Server     string   `json:"server,omitempty"`
+	XPoweredBy string   `json:"xPoweredBy,omitempty"`
+	Notes      []string `json:"notes"`
 }
 
 type HeaderInfo struct {

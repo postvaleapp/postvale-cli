@@ -346,9 +346,23 @@ func RenderHeaders(w io.Writer, r *api.HeadersCheck) {
 	headerRow(w, "COEP", r.COEP != nil && r.COEP.Present, "")
 	headerRow(w, "CORP", r.CORP != nil && r.CORP.Present, "")
 
-	if r.ServerDisclose != "" {
-		fmt.Fprintln(w)
-		fmt.Fprintln(w, StyleDim.Render(fmt.Sprintf("  Server disclosure: %s", r.ServerDisclose)))
+	if sd := r.ServerDisclose; sd != nil {
+		parts := []string{}
+		if sd.Server != "" {
+			parts = append(parts, "Server: "+sd.Server)
+		}
+		if sd.XPoweredBy != "" {
+			parts = append(parts, "X-Powered-By: "+sd.XPoweredBy)
+		}
+		if len(parts) > 0 || len(sd.Notes) > 0 {
+			fmt.Fprintln(w)
+			if len(parts) > 0 {
+				fmt.Fprintln(w, StyleDim.Render("  Server disclosure: "+strings.Join(parts, "  ·  ")))
+			}
+			for _, n := range sd.Notes {
+				fmt.Fprintln(w, StyleDim.Render("  - "+n))
+			}
+		}
 	}
 	renderRecs(w, r.Recommendations)
 }
