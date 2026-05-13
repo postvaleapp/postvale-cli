@@ -2,8 +2,11 @@ package tui
 
 import (
 	"fmt"
+	"os"
+	"sort"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/charmbracelet/bubbles/help"
 	"github.com/charmbracelet/bubbles/key"
@@ -14,14 +17,63 @@ import (
 )
 
 // NOC console - mirrors /dashboard/noc on the webapp. Three-pane
-// layout: domains on the left, action queue + live feed stacked on
-// the right. Stats strip at the top.
+// layout (domains | action queue + live feed), polish on top: cursor
+// navigation, sparkline trends, search, sort, severity tints, status
+// pill, UTC clock, critical-grade flash + bell, help overlay, compact
+// mode for narrow terminals.
+
+const (
+	pollSummary = 30 * time.Second
+	pollFeed    = 6 * time.Second
+	feedBuffer  = 200
+
+	// Sparkline width per domain row, expressed in glyphs.
+	sparkW = 8
+
+	// How long the legend popup stays visible after `g`.
+	legendDuration = 3 * time.Second
+
+	// How long the border flashes red after a domain regresses to F.
+	flashDuration = 2 * time.Second
+)
+
+var gradeBuckets = []string{"A+", "A", "B", "C", "D", "F", "-"}
+
+// Sort modes for the domains pane. Cycled with `s`.
+const (
+	sortWorstFirst = iota
+	sortHostAlpha
+	sortAgeNewest
+	sortAgeOldest
+)
+
+func sortLabel(m int) string {
+	switch m {
+	case sortHostAlpha:
+		return "host"
+	case sortAgeNewest:
+		return "newest"
+	case sortAgeOldest:
+		return "stale"
+	default:
+		return "worst"
+	}
+}
 
 type nocKeymap struct {
 	Pause   key.Binding
 	Refresh key.Binding
 	Help    key.Binding
 	Quit    key.Binding
+	Up      key.Binding
+	Down    key.Binding
+	Enter   key.Binding
+	Search  key.Binding
+	Sort    key.Binding
+	Compact key.Binding
+	Bell    key.Binding
+	Legend  key.Binding
+	Escape  key.Binding
 }
 
 func newNocKeymap() nocKeymap {
@@ -30,19 +82,31 @@ func newNocKeymap() nocKeymap {
 		Refresh: key.NewBinding(key.WithKeys("r"), key.WithHelp("r", "refresh")),
 		Help:    key.NewBinding(key.WithKeys("?"), key.WithHelp("?", "help")),
 		Quit:    key.NewBinding(key.WithKeys("q", "ctrl+c"), key.WithHelp("q", "quit")),
+		Up:      key.NewBinding(key.WithKeys("up", "k"), key.WithHelp("↑/k", "up")),
+		Down:    key.NewBinding(key.WithKeys("down", "j"), key.WithHelp("↓/j", "down")),
+		Enter:   key.NewBinding(key.WithKeys("enter"), key.WithHelp("enter", "open in browser")),
+		Search:  key.NewBinding(key.WithKeys("/"), key.WithHelp("/", "search")),
+		Sort:    key.NewBinding(key.WithKeys("s"), key.WithHelp("s", "cycle sort")),
+		Compact: key.NewBinding(key.WithKeys("c"), key.WithHelp("c", "compact layout")),
+		Bell:    key.NewBinding(key.WithKeys("b"), key.WithHelp("b", "bell on critical")),
+		Legend:  key.NewBinding(key.WithKeys("g"), key.WithHelp("g", "grade legend")),
+		Escape:  key.NewBinding(key.WithKeys("esc"), key.WithHelp("esc", "back")),
 	}
 }
 
 func (k nocKeymap) ShortHelp() []key.Binding {
-	return []key.Binding{k.Pause, k.Refresh, k.Help, k.Quit}
+	return []key.Binding{k.Up, k.Down, k.Enter, k.Search, k.Sort, k.Pause, k.Refresh, k.Help, k.Quit}
 }
 
 func (k nocKeymap) FullHelp() [][]key.Binding {
-	return [][]key.Binding{{k.Pause, k.Refresh, k.Help, k.Quit}}
+	return [][]key.Binding{
+		{k.Up, k.Down, k.Enter, k.Search},
+		{k.Sort, k.Compact, k.Bell, k.Legend},
+		{k.Pause, k.Refresh, k.Help, k.Quit},
+	}
 }
 
-// NocModel holds the live NOC state. Two independent ticker streams
-// drive summary + feed polling at different cadences.
+// NocModel holds the live NOC state.
 type NocModel struct {
 	client *api.Client
 
@@ -63,14 +127,30 @@ type NocModel struct {
 	paused bool
 	loaded bool
 	err    error
+
+	// Polish state.
+	cursor      int
+	sortMode    int
+	searchMode  bool
+	searchInput string
+	compactMode bool
+	bellEnabled bool
+	showHelp    bool
+	legendUntil time.Time
+	// prevGrades tracks the last seen worstGrade per monitored-domain
+	// ID so we can detect regression -> F transitions and flash the
+	// border briefly when a domain just went critical.
+	prevGrades map[string]string
+	flashUntil time.Time
 }
 
 func NewNoc(client *api.Client) NocModel {
 	return NocModel{
-		client: client,
-		keys:   newNocKeymap(),
-		help:   help.New(),
-		now:    time.Now(),
+		client:     client,
+		keys:       newNocKeymap(),
+		help:       help.New(),
+		now:        time.Now(),
+		prevGrades: make(map[string]string),
 	}
 }
 
@@ -116,14 +196,24 @@ func nocTickEvery(d time.Duration, msg tea.Msg) tea.Cmd {
 	return tea.Tick(d, func(time.Time) tea.Msg { return msg })
 }
 
+// bellCmd writes a single BEL byte to stderr. Wrapped in a tea.Cmd so
+// rendering is not interrupted; bubbletea writes to stdout so stderr
+// goes straight to the terminal.
+func bellCmd() tea.Cmd {
+	return func() tea.Msg {
+		_, _ = os.Stderr.Write([]byte{0x07})
+		return nil
+	}
+}
+
 // ----- bubbletea wiring -----
 
 func (m NocModel) Init() tea.Cmd {
 	return tea.Batch(
 		m.fetchSummary(),
 		m.fetchFeed(),
-		nocTickEvery(30*time.Second, nocTickSummaryMsg{}),
-		nocTickEvery(6*time.Second, nocTickFeedMsg{}),
+		nocTickEvery(pollSummary, nocTickSummaryMsg{}),
+		nocTickEvery(pollFeed, nocTickFeedMsg{}),
 		nocTickEvery(time.Second, nocTickClockMsg{}),
 	)
 }
@@ -142,15 +232,15 @@ func (m NocModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case nocTickSummaryMsg:
 		if m.paused {
-			return m, nocTickEvery(30*time.Second, nocTickSummaryMsg{})
+			return m, nocTickEvery(pollSummary, nocTickSummaryMsg{})
 		}
-		return m, tea.Batch(m.fetchSummary(), nocTickEvery(30*time.Second, nocTickSummaryMsg{}))
+		return m, tea.Batch(m.fetchSummary(), nocTickEvery(pollSummary, nocTickSummaryMsg{}))
 
 	case nocTickFeedMsg:
 		if m.paused {
-			return m, nocTickEvery(6*time.Second, nocTickFeedMsg{})
+			return m, nocTickEvery(pollFeed, nocTickFeedMsg{})
 		}
-		return m, tea.Batch(m.fetchFeed(), nocTickEvery(6*time.Second, nocTickFeedMsg{}))
+		return m, tea.Batch(m.fetchFeed(), nocTickEvery(pollFeed, nocTickFeedMsg{}))
 
 	case nocSummaryMsg:
 		if msg.err != nil {
@@ -164,6 +254,25 @@ func (m NocModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.lastSync = time.Now()
 		m.loaded = true
 		m.err = nil
+
+		// Detect new D/F transitions per domain. Flash + bell once
+		// per regression so an idle operator sees + hears something
+		// when posture drops, without spamming on every poll.
+		flash := false
+		for _, d := range msg.domains {
+			prev := m.prevGrades[d.ID]
+			cur := d.LastWorstGrade
+			if isCritical(cur) && !isCritical(prev) {
+				flash = true
+			}
+			m.prevGrades[d.ID] = cur
+		}
+		if flash {
+			m.flashUntil = time.Now().Add(flashDuration)
+			if m.bellEnabled {
+				return m, bellCmd()
+			}
+		}
 		return m, nil
 
 	case nocFeedMsg:
@@ -186,28 +295,82 @@ func (m NocModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		// API returns newest first. Prepend to the buffer.
 		combined := append(fresh, m.feed...)
-		if len(combined) > 200 {
-			combined = combined[:200]
+		if len(combined) > feedBuffer {
+			combined = combined[:feedBuffer]
 		}
 		m.feed = combined
-		// Advance the cursor to the newest entry's ranAt so the next
-		// fetch only gets strictly-newer rows.
 		m.feedCursor = msg.scans[0].RanAt
 		return m, nil
 
 	case tea.KeyMsg:
-		switch {
-		case key.Matches(msg, m.keys.Quit):
-			return m, tea.Quit
-		case key.Matches(msg, m.keys.Pause):
-			m.paused = !m.paused
-			return m, nil
-		case key.Matches(msg, m.keys.Refresh):
-			return m, tea.Batch(m.fetchSummary(), m.fetchFeed())
-		case key.Matches(msg, m.keys.Help):
-			m.help.ShowAll = !m.help.ShowAll
-			return m, nil
+		return m.handleKey(msg)
+	}
+	return m, nil
+}
+
+func (m NocModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	// Search-mode swallows printable input so a `/` in a domain name
+	// can be typed. Escape exits + clears, Enter exits + keeps the
+	// filter, Backspace deletes a char.
+	if m.searchMode {
+		switch msg.String() {
+		case "esc":
+			m.searchMode = false
+			m.searchInput = ""
+		case "enter":
+			m.searchMode = false
+		case "backspace":
+			if len(m.searchInput) > 0 {
+				m.searchInput = m.searchInput[:len(m.searchInput)-1]
+			}
+		default:
+			// Accept any single printable rune.
+			r := []rune(msg.String())
+			if len(r) == 1 && unicode.IsPrint(r[0]) {
+				m.searchInput += string(r)
+			}
 		}
+		return m, nil
+	}
+
+	switch {
+	case key.Matches(msg, m.keys.Quit):
+		return m, tea.Quit
+	case key.Matches(msg, m.keys.Escape):
+		m.showHelp = false
+	case key.Matches(msg, m.keys.Help):
+		m.showHelp = !m.showHelp
+	case key.Matches(msg, m.keys.Pause):
+		m.paused = !m.paused
+	case key.Matches(msg, m.keys.Refresh):
+		return m, tea.Batch(m.fetchSummary(), m.fetchFeed())
+	case key.Matches(msg, m.keys.Up):
+		if m.cursor > 0 {
+			m.cursor--
+		}
+	case key.Matches(msg, m.keys.Down):
+		visible := len(m.visibleDomains())
+		if visible > 0 && m.cursor < visible-1 {
+			m.cursor++
+		}
+	case key.Matches(msg, m.keys.Enter):
+		doms := m.visibleDomains()
+		if m.cursor < len(doms) {
+			openURL(m.client.BaseURL() + "/dashboard/" + doms[m.cursor].ID)
+		}
+	case key.Matches(msg, m.keys.Search):
+		m.searchMode = true
+		m.searchInput = ""
+	case key.Matches(msg, m.keys.Sort):
+		m.sortMode = (m.sortMode + 1) % 4
+		m.cursor = 0
+	case key.Matches(msg, m.keys.Compact):
+		m.compactMode = !m.compactMode
+	case key.Matches(msg, m.keys.Bell):
+		m.bellEnabled = !m.bellEnabled
+		m.legendUntil = time.Now().Add(legendDuration)
+	case key.Matches(msg, m.keys.Legend):
+		m.legendUntil = time.Now().Add(legendDuration)
 	}
 	return m, nil
 }
@@ -219,7 +382,17 @@ func (m NocModel) View() string {
 		return m.renderShell("\n  " + StyleDim.Render("loading…") + "\n")
 	}
 	body := m.renderStatsBar() + "\n\n" + m.renderPanes()
-	return m.renderShell(body)
+	if m.now.Before(m.legendUntil) {
+		body += "\n" + m.renderLegend()
+	}
+	if m.searchMode || m.searchInput != "" {
+		body += "\n" + m.renderSearchBar()
+	}
+	out := m.renderShell(body)
+	if m.showHelp {
+		out = m.renderHelpOverlay(out)
+	}
+	return out
 }
 
 func (m NocModel) renderShell(body string) string {
@@ -233,12 +406,14 @@ func (m NocModel) renderHeader() string {
 	if m.paused {
 		live = StyleWarn.Render("● paused")
 	}
+	clock := StyleDim.Render(m.now.UTC().Format("15:04:05") + " UTC")
 	syncedAgo := "-"
 	if !m.lastSync.IsZero() {
 		syncedAgo = formatAgo(m.now.Sub(m.lastSync)) + " ago"
 	}
 	left := StyleHeader.Render("POSTVALE · NOC")
-	right := fmt.Sprintf("%s  %s",
+	right := fmt.Sprintf("%s  %s  %s",
+		clock,
 		live,
 		StyleDim.Render("synced "+syncedAgo),
 	)
@@ -249,8 +424,15 @@ func (m NocModel) renderHeader() string {
 			pad = strings.Repeat(" ", gap)
 		}
 	}
-	return left + pad + right + "\n" +
-		StyleDim.Render(strings.Repeat("─", max(0, m.width))) + "\n"
+	rule := strings.Repeat("─", max(0, m.width))
+	// Flash overlay: tint the rule red for the brief window after a
+	// critical regression so the eye gets pulled to the top edge.
+	if m.now.Before(m.flashUntil) {
+		rule = StyleFail.Bold(true).Render(strings.Repeat("━", max(0, m.width)))
+	} else {
+		rule = StyleDim.Render(rule)
+	}
+	return left + pad + right + "\n" + rule + "\n"
 }
 
 func (m NocModel) renderFooter() string {
@@ -266,10 +448,9 @@ func (m NocModel) renderStatsBar() string {
 		return "  " + StyleDim.Render("(no data)")
 	}
 	s := m.summary
-	parts := []string{
-		statVal(s.MonitoredCount) + " " + StyleDim.Render("domains"),
-	}
-	for _, g := range []string{"A+", "A", "B", "C", "D", "F", "-"} {
+	parts := []string{m.renderStatusPill(s.GradeDistribution)}
+	parts = append(parts, statVal(s.MonitoredCount)+" "+StyleDim.Render("domains"))
+	for _, g := range gradeBuckets {
 		v := s.GradeDistribution[g]
 		parts = append(parts, gradeBucket(g, v))
 	}
@@ -277,12 +458,40 @@ func (m NocModel) renderStatsBar() string {
 		statValAlert(s.BlocklistHits)+" "+StyleDim.Render("blocked"),
 		statVal(s.RecentAlertCount24h)+" "+StyleDim.Render("alerts/24h"),
 	)
+	if m.bellEnabled {
+		parts = append(parts, StyleWarn.Render("🔔 on"))
+	}
 	return "  " + strings.Join(parts, "  ")
 }
 
+// renderStatusPill computes a coloured one-glance verdict from the
+// grade distribution. ALL GREEN if everyone's A/A+, INCIDENT if any
+// D/F, DEGRADED if any B/C without D/F.
+func (m NocModel) renderStatusPill(g map[string]int) string {
+	red := g["D"] + g["F"]
+	amber := g["B"] + g["C"]
+	if red > 0 {
+		return StyleFail.Bold(true).Render(
+			fmt.Sprintf("● INCIDENT: %d failing", red),
+		)
+	}
+	if amber > 0 {
+		return StyleWarn.Bold(true).Render(
+			fmt.Sprintf("● DEGRADED: %d", amber),
+		)
+	}
+	if g["A"]+g["A+"] > 0 {
+		return StyleOK.Bold(true).Render("● ALL GREEN")
+	}
+	return StyleDim.Render("● NO DATA")
+}
+
 func (m NocModel) renderPanes() string {
+	if m.compactMode {
+		return m.renderCompact()
+	}
+
 	// Two columns: domains (~60% width) | right stack (~40%).
-	// Right stack is action queue on top, live feed below.
 	leftW := m.width * 6 / 10
 	rightW := m.width - leftW - 3
 	if leftW < 30 {
@@ -299,18 +508,14 @@ func (m NocModel) renderPanes() string {
 	rightH := bodyH / 2
 	feedH := bodyH - rightH - 1
 
-	left := renderPanel("DOMAINS · "+fmt.Sprintf("%d", len(m.domains)),
-		m.renderDomains(), leftW, bodyH)
+	left := renderPanel(m.domainsPanelTitle(),
+		m.renderDomains(bodyH-4), leftW, bodyH)
 	queueCount := 0
 	if m.summary != nil {
 		queueCount = len(m.summary.ActionQueue)
 	}
 	rightTop := renderPanel(fmt.Sprintf("ACTION QUEUE · %d", queueCount),
-		m.renderActionQueue(), rightW, rightH)
-	// 4 lines of panel chrome: top border, title, rule, bottom border.
-	// Feed buffer caps at 200 but the visible window has to match the
-	// panel; otherwise lipgloss expands the panel past bodyH and the
-	// stats bar + left pane scroll off the top of the alt-screen.
+		m.renderActionQueue(rightH-4), rightW, rightH)
 	rightBot := renderPanel("LIVE FEED",
 		m.renderLiveFeed(feedH-4), rightW, feedH)
 	right := rightTop + "\n" + rightBot
@@ -318,23 +523,150 @@ func (m NocModel) renderPanes() string {
 	return lipgloss.JoinHorizontal(lipgloss.Top, left, "  ", right)
 }
 
-func (m NocModel) renderDomains() string {
-	if len(m.domains) == 0 {
+// renderCompact stacks the panels vertically for narrow terminals.
+// All three panels get the full width; heights are split evenly.
+func (m NocModel) renderCompact() string {
+	w := m.width - 4
+	if w < 30 {
+		w = 30
+	}
+	bodyH := m.height - 8
+	if bodyH < 18 {
+		bodyH = 18
+	}
+	domH := bodyH * 2 / 5
+	queueH := bodyH / 5
+	feedH := bodyH - domH - queueH - 2
+
+	queueCount := 0
+	if m.summary != nil {
+		queueCount = len(m.summary.ActionQueue)
+	}
+
+	domains := renderPanel(m.domainsPanelTitle(),
+		m.renderDomains(domH-4), w, domH)
+	queue := renderPanel(fmt.Sprintf("ACTION QUEUE · %d", queueCount),
+		m.renderActionQueue(queueH-4), w, queueH)
+	feed := renderPanel("LIVE FEED",
+		m.renderLiveFeed(feedH-4), w, feedH)
+	return domains + "\n" + queue + "\n" + feed
+}
+
+func (m NocModel) domainsPanelTitle() string {
+	base := fmt.Sprintf("DOMAINS · %d", len(m.visibleDomains()))
+	tail := fmt.Sprintf("sort:%s", sortLabel(m.sortMode))
+	if m.searchInput != "" {
+		tail += " · /" + m.searchInput
+	}
+	return base + " · " + tail
+}
+
+// ----- domains pane -----
+
+func (m NocModel) visibleDomains() []api.MonitoredDomain {
+	doms := filterDomains(m.domains, m.searchInput)
+	return sortDomains(doms, m.sortMode)
+}
+
+func filterDomains(in []api.MonitoredDomain, q string) []api.MonitoredDomain {
+	if q == "" {
+		return in
+	}
+	q = strings.ToLower(q)
+	out := make([]api.MonitoredDomain, 0, len(in))
+	for _, d := range in {
+		if strings.Contains(strings.ToLower(d.Host), q) {
+			out = append(out, d)
+		}
+	}
+	return out
+}
+
+func sortDomains(in []api.MonitoredDomain, mode int) []api.MonitoredDomain {
+	out := append([]api.MonitoredDomain{}, in...)
+	switch mode {
+	case sortHostAlpha:
+		sort.SliceStable(out, func(i, j int) bool {
+			return strings.ToLower(out[i].Host) < strings.ToLower(out[j].Host)
+		})
+	case sortAgeNewest:
+		sort.SliceStable(out, func(i, j int) bool {
+			return parseTimePtr(out[i].LastCheckedAt).After(parseTimePtr(out[j].LastCheckedAt))
+		})
+	case sortAgeOldest:
+		sort.SliceStable(out, func(i, j int) bool {
+			return parseTimePtr(out[i].LastCheckedAt).Before(parseTimePtr(out[j].LastCheckedAt))
+		})
+	default:
+		// Worst-first (F highest rank). Secondary: host alpha so the
+		// view is stable across polls.
+		sort.SliceStable(out, func(i, j int) bool {
+			ri, rj := gradeRank(out[i].LastWorstGrade), gradeRank(out[j].LastWorstGrade)
+			if ri != rj {
+				return ri > rj
+			}
+			return strings.ToLower(out[i].Host) < strings.ToLower(out[j].Host)
+		})
+	}
+	return out
+}
+
+func gradeRank(g string) int {
+	switch g {
+	case "F":
+		return 6
+	case "D":
+		return 5
+	case "C":
+		return 4
+	case "B":
+		return 3
+	case "A":
+		return 2
+	case "A+":
+		return 1
+	default:
+		return 0
+	}
+}
+
+func (m NocModel) renderDomains(maxLines int) string {
+	doms := m.visibleDomains()
+	if len(doms) == 0 {
+		if m.searchInput != "" {
+			return "\n  " + StyleDim.Render("no matches for /"+m.searchInput) + "\n"
+		}
 		return "\n  " + StyleDim.Render("No monitored domains. Add one with `postvale watch add <domain>`.") + "\n"
 	}
+
+	cursor := m.cursor
+	if cursor >= len(doms) {
+		cursor = len(doms) - 1
+	}
+	if cursor < 0 {
+		cursor = 0
+	}
+
 	var b strings.Builder
+	// Header row. Two leading spaces (`  `) align with row data that
+	// has a 2-char cursor / spacer prefix.
 	b.WriteString("  ")
-	b.WriteString(colHeader("Host", 28))
-	b.WriteString(colHeader("Grade", 7))
-	b.WriteString(colHeader("TLS", 5))
+	b.WriteString(colHeader("Host", 26))
+	b.WriteString(colHeader("Grade", 6))
+	b.WriteString(colHeader("Trend", sparkW+1))
+	b.WriteString(colHeader("TLS", 4))
 	b.WriteString(colHeader("DMARC", 6))
-	b.WriteString(colHeader("DNS", 5))
-	b.WriteString(colHeader("HDR", 5))
-	b.WriteString(colHeader("MTA", 5))
-	b.WriteString(colHeader("Last", 8))
+	b.WriteString(colHeader("DNS", 4))
+	b.WriteString(colHeader("HDR", 4))
+	b.WriteString(colHeader("MTA", 4))
+	b.WriteString(colHeader("Last", 7))
 	b.WriteString("\n")
 
-	for _, d := range m.domains {
+	if maxLines > 0 && len(doms) > maxLines-1 {
+		doms = doms[:maxLines-1]
+	}
+
+	for i, d := range doms {
 		host := d.Host
 		if d.Port != 443 {
 			host = fmt.Sprintf("%s:%d", host, d.Port)
@@ -347,31 +679,71 @@ func (m NocModel) renderDomains() string {
 		if d.LastCheckedAt != nil {
 			last = formatAgo(m.now.Sub(parseTime(*d.LastCheckedAt)))
 		}
-		b.WriteString("  ")
-		b.WriteString(truncate(host, 28))
-		b.WriteString(GradeStyle(grade).Render(padRight(grade, 7)))
-		b.WriteString(subGrade(d.LastGrades, "tls", 5))
+
+		prefix := "  "
+		if i == cursor {
+			prefix = StyleHeader.Render("❯ ")
+		}
+		b.WriteString(prefix)
+		hostCell := truncate(host, 26)
+		if i == cursor {
+			hostCell = StyleStrong.Render(hostCell)
+		}
+		b.WriteString(hostCell)
+		b.WriteString(GradeStyle(grade).Render(padRight(grade, 6)))
+		b.WriteString(sparkline(m.feed, d.Host, sparkW))
+		b.WriteString(" ")
+		b.WriteString(subGrade(d.LastGrades, "tls", 4))
 		b.WriteString(subGrade(d.LastGrades, "dmarc", 6))
-		b.WriteString(subGrade(d.LastGrades, "dns", 5))
-		b.WriteString(subGrade(d.LastGrades, "headers", 5))
-		b.WriteString(subGrade(d.LastGrades, "mtaSts", 5))
-		b.WriteString(StyleDim.Render(padRight(last, 8)))
+		b.WriteString(subGrade(d.LastGrades, "dns", 4))
+		b.WriteString(subGrade(d.LastGrades, "headers", 4))
+		b.WriteString(subGrade(d.LastGrades, "mtaSts", 4))
+		b.WriteString(StyleDim.Render(padRight(last, 7)))
 		b.WriteString("\n")
 	}
 	return b.String()
 }
 
-// Per-tool grade cell. Empty / missing renders as a dim dash, matching
-// the webapp NOC. Letter grades use the same colour pill scheme as
-// the worst-grade column.
+// sparkline renders an N-block strip per domain row. Blocks are
+// coloured by the worst grade of each recent scan, oldest on the left
+// + newest on the right, padded with dim blocks when there's not
+// enough history yet (typical at session start; fills in as scans land).
+func sparkline(feed []api.RecentScan, host string, n int) string {
+	var scans []api.RecentScan
+	for _, s := range feed {
+		if s.Host == host {
+			scans = append(scans, s)
+			if len(scans) >= n {
+				break
+			}
+		}
+	}
+	// Feed comes newest-first; reverse so the right side is the most
+	// recent scan, matching the eye-direction operators expect.
+	for i, j := 0, len(scans)-1; i < j; i, j = i+1, j-1 {
+		scans[i], scans[j] = scans[j], scans[i]
+	}
+	pad := n - len(scans)
+	var b strings.Builder
+	for i := 0; i < pad; i++ {
+		b.WriteString(StyleDim.Render("▁"))
+	}
+	for _, s := range scans {
+		g := s.WorstGrade
+		if g == "" {
+			g = "-"
+		}
+		b.WriteString(GradeStyle(g).Render("█"))
+	}
+	return b.String()
+}
+
 func subGrade(grades map[string]string, key string, width int) string {
 	if grades == nil {
 		return StyleDim.Render(padRight("-", width))
 	}
 	g := grades[key]
 	if g == "" && key == "mtaSts" {
-		// Webapp returns either mtaSts or mta-sts depending on
-		// scanner version; tolerate both.
 		g = grades["mta-sts"]
 	}
 	if g == "" {
@@ -380,31 +752,54 @@ func subGrade(grades map[string]string, key string, width int) string {
 	return GradeStyle(g).Render(padRight(g, width))
 }
 
-func (m NocModel) renderActionQueue() string {
+// ----- action queue -----
+
+func (m NocModel) renderActionQueue(maxLines int) string {
 	if m.summary == nil || len(m.summary.ActionQueue) == 0 {
 		return "\n  " + StyleOK.Render("✓") + StyleDim.Render(" nothing to action") + "\n"
 	}
+	items := m.summary.ActionQueue
+	if maxLines > 0 && len(items) > maxLines {
+		items = items[:maxLines]
+	}
 	var b strings.Builder
-	for _, it := range m.summary.ActionQueue {
+	for _, it := range items {
 		dot := severityDot(it.Severity)
 		domain := truncate(it.Domain, 18)
-		msg := truncate(it.Message, 40)
+		msg := truncate(it.Message, 38)
 		age := formatAgo(m.now.Sub(parseTime(it.DetectedAt)))
-		b.WriteString(fmt.Sprintf(" %s %s %s %s\n",
+		row := fmt.Sprintf(" %s %s %s %s",
 			dot,
 			StyleStrong.Render(padRight(domain, 18)),
-			StyleDim.Render(padRight(msg, 40)),
-			StyleDim.Render(age),
-		))
+			StyleDim.Render(padRight(msg, 38)),
+			StyleDim.Render(padRight(age, 4)),
+		)
+		// Subtle severity tint - colours the row indicator more
+		// strongly. Don't paint full-row backgrounds (lipgloss spans
+		// past panel borders on some terminals and looks broken).
+		switch it.Severity {
+		case "high":
+			row = StyleFail.Render("│") + row
+		case "med":
+			row = StyleWarn.Render("│") + row
+		default:
+			row = StyleDim.Render("│") + row
+		}
+		b.WriteString(row + "\n")
 	}
 	return b.String()
 }
 
+// ----- live feed -----
+
 func (m NocModel) renderLiveFeed(maxLines int) string {
-	if len(m.feed) == 0 {
+	feed := filterFeed(m.feed, m.searchInput)
+	if len(feed) == 0 {
+		if m.searchInput != "" {
+			return "\n  " + StyleDim.Render("no matches for /"+m.searchInput) + "\n"
+		}
 		return "\n  " + StyleDim.Render("waiting for the next scan…") + "\n"
 	}
-	feed := m.feed
 	if maxLines > 0 && len(feed) > maxLines {
 		feed = feed[:maxLines]
 	}
@@ -417,11 +812,99 @@ func (m NocModel) renderLiveFeed(maxLines int) string {
 		}
 		b.WriteString(fmt.Sprintf(" %s  %s  %s\n",
 			StyleDim.Render(clock),
-			truncate(s.Host, 28),
+			truncate(s.Host, 26),
 			GradeStyle(grade).Render(grade),
 		))
 	}
 	return b.String()
+}
+
+func filterFeed(in []api.RecentScan, q string) []api.RecentScan {
+	if q == "" {
+		return in
+	}
+	q = strings.ToLower(q)
+	out := make([]api.RecentScan, 0, len(in))
+	for _, s := range in {
+		if strings.Contains(strings.ToLower(s.Host), q) {
+			out = append(out, s)
+		}
+	}
+	return out
+}
+
+// ----- modal / overlays -----
+
+// renderHelpOverlay draws the full keymap centered over the current
+// view. We dim the underlying chrome so the operator's attention lands
+// on the key list, not the background data.
+func (m NocModel) renderHelpOverlay(under string) string {
+	rows := [][2]string{
+		{"↑/k, ↓/j", "move cursor through domains"},
+		{"enter", "open selected domain in browser"},
+		{"/", "search filter (domains + feed)"},
+		{"esc", "exit search / close help"},
+		{"s", "cycle sort: worst → host → newest → stale"},
+		{"c", "compact layout (single column)"},
+		{"b", "toggle bell on critical regression"},
+		{"g", "grade legend (3s popup)"},
+		{"p", "pause / resume polling"},
+		{"r", "refresh now"},
+		{"?", "toggle this help"},
+		{"q", "quit"},
+	}
+	var b strings.Builder
+	b.WriteString(StyleHeader.Render("KEY BINDINGS") + "\n")
+	b.WriteString(StyleDim.Render(strings.Repeat("─", 40)) + "\n")
+	for _, r := range rows {
+		b.WriteString(fmt.Sprintf("  %s  %s\n",
+			StyleStrong.Render(padRight(r[0], 12)),
+			StyleDim.Render(r[1]),
+		))
+	}
+	b.WriteString("\n" + StyleDim.Render("? to close") + "\n")
+
+	box := lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(colAmber).
+		Background(lipgloss.Color("#0B1220")).
+		Padding(1, 2).
+		Render(b.String())
+	if m.width == 0 || m.height == 0 {
+		return box
+	}
+	return lipgloss.Place(m.width, m.height,
+		lipgloss.Center, lipgloss.Center,
+		box,
+		lipgloss.WithWhitespaceChars(" "),
+	)
+}
+
+// renderLegend renders a short pill strip showing the grade-colour
+// mapping. Triggered by `g`; auto-hides after legendDuration. Acts as
+// a colour key for new operators + a confirmation chip when `b`
+// toggles bell.
+func (m NocModel) renderLegend() string {
+	parts := []string{
+		GradeStyle("A+").Render("A+/A") + " " + StyleDim.Render("green"),
+		GradeStyle("B").Render("B/C") + " " + StyleDim.Render("amber"),
+		GradeStyle("F").Render("D/F") + " " + StyleDim.Render("red"),
+	}
+	bell := "bell: " + boolLabel(m.bellEnabled)
+	return "  " + strings.Join(parts, "   ") + "   " + StyleDim.Render(bell)
+}
+
+func (m NocModel) renderSearchBar() string {
+	prompt := StyleHeader.Render("/")
+	input := m.searchInput
+	if m.searchMode {
+		input += StyleWarn.Render("_")
+	}
+	hint := ""
+	if m.searchMode {
+		hint = StyleDim.Render("   enter accept · esc clear")
+	}
+	return "  " + prompt + input + hint
 }
 
 // ----- helpers -----
@@ -431,14 +914,14 @@ func colHeader(label string, width int) string {
 }
 
 func padRight(s string, w int) string {
-	if len(s) >= w {
+	if lipgloss.Width(s) >= w {
 		return s
 	}
-	return s + strings.Repeat(" ", w-len(s))
+	return s + strings.Repeat(" ", w-lipgloss.Width(s))
 }
 
 func truncate(s string, w int) string {
-	if len(s) <= w {
+	if lipgloss.Width(s) <= w {
 		return padRight(s, w)
 	}
 	if w <= 1 {
@@ -482,30 +965,37 @@ func formatClock(iso string) string {
 	return t.Local().Format("15:04:05")
 }
 
+func parseTimePtr(iso *string) time.Time {
+	if iso == nil {
+		return time.Time{}
+	}
+	return parseTime(*iso)
+}
+
+func isCritical(g string) bool {
+	return g == "D" || g == "F"
+}
+
+func boolLabel(b bool) string {
+	if b {
+		return "on"
+	}
+	return "off"
+}
+
 func renderPanel(title, body string, width, height int) string {
 	titleLine := lipgloss.NewStyle().
-		Foreground(lipgloss.AdaptiveColor{Light: "#B45309", Dark: "#FBBF24"}).
+		Foreground(colAmber).
 		Bold(true).
 		Render(title)
 	border := lipgloss.RoundedBorder()
-	// MaxHeight/MaxWidth clip overlong content. Without them, content
-	// longer than the requested dimensions expands the panel and breaks
-	// the surrounding layout.
 	style := lipgloss.NewStyle().
 		Border(border).
-		BorderForeground(lipgloss.AdaptiveColor{Light: "#CBD5E1", Dark: "#334155"}).
+		BorderForeground(colSlateDim).
 		Width(width).
 		Height(height).
 		MaxWidth(width + 2).
 		MaxHeight(height + 2)
-	header := lipgloss.NewStyle().
-		Foreground(lipgloss.AdaptiveColor{Light: "#94A3B8", Dark: "#64748B"}).
-		Render(strings.Repeat("─", width-2))
-	// Newline between header and body forces body to start at column 0
-	// of its own row. Without it lipgloss's wordwrap kicks in (the
-	// rule + first body line exceed the panel width) and eats the
-	// leading space of the first row, which made the severity dot
-	// disappear on the top action-queue item and shifted the first
-	// live-feed line left by one column.
+	header := StyleDim.Render(strings.Repeat("─", width-2))
 	return style.Render(titleLine + "\n" + header + "\n" + body)
 }

@@ -47,6 +47,13 @@ func userAgent() string {
 	return fmt.Sprintf("postvale-cli/%s (+https://github.com/postvaleapp/postvale-cli)", version.Version)
 }
 
+// BaseURL returns the configured API base as a string, e.g.
+// "https://postvale.app". Useful for callers that need to build
+// dashboard URLs to hand to the user's browser.
+func (c *Client) BaseURL() string {
+	return c.base.String()
+}
+
 // HTTPError is returned for non-2xx responses.
 type HTTPError struct {
 	StatusCode int
