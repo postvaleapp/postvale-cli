@@ -492,15 +492,16 @@ func (c *Client) Me() (*Me, error) {
 // ---- watch (monitored domains) ----
 
 type MonitoredDomain struct {
-	ID             string  `json:"id"`
-	Host           string  `json:"host"`
-	Port           int     `json:"port"`
-	Label          *string `json:"label,omitempty"`
-	CadenceMinutes int     `json:"cadenceMinutes"`
-	Paused         bool    `json:"paused"`
-	LastCheckedAt  *string `json:"lastCheckedAt,omitempty"`
-	LastWorstGrade string  `json:"lastWorstGrade,omitempty"`
-	CreatedAt      string  `json:"createdAt"`
+	ID             string            `json:"id"`
+	Host           string            `json:"host"`
+	Port           int               `json:"port"`
+	Label          *string           `json:"label,omitempty"`
+	CadenceMinutes int               `json:"cadenceMinutes"`
+	Paused         bool              `json:"paused"`
+	LastCheckedAt  *string           `json:"lastCheckedAt,omitempty"`
+	LastWorstGrade string            `json:"lastWorstGrade,omitempty"`
+	LastGrades     map[string]string `json:"lastGrades,omitempty"`
+	CreatedAt      string            `json:"createdAt"`
 }
 
 type domainsListResp struct {

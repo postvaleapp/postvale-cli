@@ -167,7 +167,11 @@ func (m NocModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case nocFeedMsg:
-		if msg.err != nil || len(msg.scans) == 0 {
+		if msg.err != nil {
+			m.err = msg.err
+			return m, nil
+		}
+		if len(msg.scans) == 0 {
 			return m, nil
 		}
 		seen := make(map[string]bool, len(m.feed))
@@ -314,14 +318,14 @@ func (m NocModel) renderDomains() string {
 		return "\n  " + StyleDim.Render("No monitored domains. Add one with `postvale watch add <domain>`.") + "\n"
 	}
 	var b strings.Builder
-	// Header row
 	b.WriteString("  ")
 	b.WriteString(colHeader("Host", 28))
 	b.WriteString(colHeader("Grade", 7))
 	b.WriteString(colHeader("TLS", 5))
-	b.WriteString(colHeader("DMC", 5))
+	b.WriteString(colHeader("DMARC", 6))
 	b.WriteString(colHeader("DNS", 5))
 	b.WriteString(colHeader("HDR", 5))
+	b.WriteString(colHeader("MTA", 5))
 	b.WriteString(colHeader("Last", 8))
 	b.WriteString("\n")
 
@@ -341,20 +345,34 @@ func (m NocModel) renderDomains() string {
 		b.WriteString("  ")
 		b.WriteString(truncate(host, 28))
 		b.WriteString(GradeStyle(grade).Render(padRight(grade, 7)))
-		// Sub-grades are stored on the scanResults blob server-side;
-		// the /api/v1/domains shape returns last grade only. We
-		// surface the worst grade across sub-tools here; deep dive
-		// is one keystroke away in the web dashboard. TODO: expose
-		// lastGrades on the API shape so we can render per-tool
-		// columns.
-		b.WriteString(padRight("·", 5))
-		b.WriteString(padRight("·", 5))
-		b.WriteString(padRight("·", 5))
-		b.WriteString(padRight("·", 5))
+		b.WriteString(subGrade(d.LastGrades, "tls", 5))
+		b.WriteString(subGrade(d.LastGrades, "dmarc", 6))
+		b.WriteString(subGrade(d.LastGrades, "dns", 5))
+		b.WriteString(subGrade(d.LastGrades, "headers", 5))
+		b.WriteString(subGrade(d.LastGrades, "mtaSts", 5))
 		b.WriteString(StyleDim.Render(padRight(last, 8)))
 		b.WriteString("\n")
 	}
 	return b.String()
+}
+
+// Per-tool grade cell. Empty / missing renders as a dim dash, matching
+// the webapp NOC. Letter grades use the same colour pill scheme as
+// the worst-grade column.
+func subGrade(grades map[string]string, key string, width int) string {
+	if grades == nil {
+		return StyleDim.Render(padRight("-", width))
+	}
+	g := grades[key]
+	if g == "" && key == "mtaSts" {
+		// Webapp returns either mtaSts or mta-sts depending on
+		// scanner version; tolerate both.
+		g = grades["mta-sts"]
+	}
+	if g == "" {
+		return StyleDim.Render(padRight("-", width))
+	}
+	return GradeStyle(g).Render(padRight(g, width))
 }
 
 func (m NocModel) renderActionQueue() string {
