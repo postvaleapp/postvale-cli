@@ -381,6 +381,11 @@ func (m NocModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Mouse wheel scrolling on the detail viewport. Main view
 		// has no scrollable region so we ignore mouse events there.
 		if m.detailDomain != nil {
+			// Refresh content first - viewport.Update reads stored
+			// content to clamp YOffset; View() sets it on a value-
+			// receiver copy so the change doesn't persist into the
+			// model that handles input.
+			m.detailViewport.SetContent(m.renderDetail())
 			var cmd tea.Cmd
 			m.detailViewport, cmd = m.detailViewport.Update(msg)
 			return m, cmd
@@ -449,8 +454,8 @@ func (m NocModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if m.cursor < len(doms) {
 			d := doms[m.cursor]
 			m.detailDomain = &d
-			// New view starts at the top; otherwise we'd inherit the
-			// scroll position from whichever domain was viewed last.
+			// Seed content before the first scroll input lands.
+			m.detailViewport.SetContent(m.renderDetail())
 			m.detailViewport.GotoTop()
 		}
 	case key.Matches(msg, m.keys.Search):
@@ -490,6 +495,9 @@ func (m NocModel) handleDetailKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "ctrl+c":
 		return m, tea.Quit
 	}
+	// Same content-refresh dance as the MouseMsg path; viewport.Update
+	// needs current content to know how far it can scroll.
+	m.detailViewport.SetContent(m.renderDetail())
 	var cmd tea.Cmd
 	m.detailViewport, cmd = m.detailViewport.Update(msg)
 	return m, cmd
@@ -932,31 +940,18 @@ func (m NocModel) renderDomains(maxLines int) string {
 			hostCell = StyleStrong.Render(hostCell)
 		}
 
-		// Build the row body first so we can optionally wrap it in a
-		// pulsing background for D/F rows below.
-		row := prefix + hostCell +
-			GradeStyle(grade).Render(padRight(grade, 6)) +
-			sparkline(m.feed, d.Host, sparkW) + " " +
-			subGrade(d.LastGrades, "tls", 4) +
-			subGrade(d.LastGrades, "dmarc", 6) +
-			subGrade(d.LastGrades, "dns", 4) +
-			subGrade(d.LastGrades, "headers", 4) +
-			subGrade(d.LastGrades, "mtaSts", 4) +
-			StyleDim.Render(padRight(last, 7))
-
-		// Warning highlight: pulse a subtle red background on rows
-		// that just landed at D or F. Two-stage pulse at ~0.7Hz so
-		// it draws the eye without strobing.
-		if grade == "D" || grade == "F" {
-			phase := (m.now.UnixMilli() / 700) % 2
-			bg := lipgloss.Color("#1F0606")
-			if phase == 0 {
-				bg = lipgloss.Color("#2E0A0A")
-			}
-			row = lipgloss.NewStyle().Background(bg).Render(row)
-		}
-
-		b.WriteString(row + "\n")
+		b.WriteString(prefix)
+		b.WriteString(hostCell)
+		b.WriteString(GradeStyle(grade).Render(padRight(grade, 6)))
+		b.WriteString(sparkline(m.feed, d.Host, sparkW))
+		b.WriteString(" ")
+		b.WriteString(subGrade(d.LastGrades, "tls", 4))
+		b.WriteString(subGrade(d.LastGrades, "dmarc", 6))
+		b.WriteString(subGrade(d.LastGrades, "dns", 4))
+		b.WriteString(subGrade(d.LastGrades, "headers", 4))
+		b.WriteString(subGrade(d.LastGrades, "mtaSts", 4))
+		b.WriteString(StyleDim.Render(padRight(last, 7)))
+		b.WriteString("\n")
 	}
 	return b.String()
 }
