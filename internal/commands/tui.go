@@ -12,26 +12,28 @@ import (
 )
 
 func newTuiCommand() *cobra.Command {
-	return &cobra.Command{
+	var startPage string
+	cmd := &cobra.Command{
 		Use:   "tui",
-		Short: "Interactive dashboard for your monitored domains",
-		Long: `Open an interactive dashboard.
+		Short: "Full terminal client (dashboard, NOC, alerts, tools, verify, account)",
+		Long: `Open the full Postvale terminal client. Sidebar nav across every
+signed-in surface, no browser required.
 
-  ↑/↓ or k/j   move between domains
-  ↵            details for the selected row
-  r            refresh
-  o            open the web dashboard for context
-  ?            full keyboard help
-  q            quit`,
+  Tab          focus / unfocus the sidebar
+  ↑/↓ or k/j   move within the sidebar
+  ↵            open the highlighted page
+  q            quit (from the sidebar)
+  ctrl+c       quit (always)
+
+Pages have their own key bindings; ? on a page shows the legend.
+
+Start on a specific page with --page <name>:
+  dashboard | noc | alerts | tools | verify | account`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			client, err := newClient()
 			if err != nil {
 				return err
 			}
-			// Refuse to launch the TUI without a token - every panel
-			// hits authenticated routes, so the user would just see
-			// "Could not load dashboard: 401" and quit. Surface the
-			// hint at the command line where they can act on it.
 			if _, err := auth.Load(); err != nil && Globals().Token == "" {
 				if errors.Is(err, auth.ErrNotLoggedIn) {
 					return fmt.Errorf("not signed in - run `postvale auth login` first")
@@ -39,12 +41,42 @@ func newTuiCommand() *cobra.Command {
 				return err
 			}
 
-			model := tui.New(client, Globals().APIBase)
-			prog := tea.NewProgram(model, tea.WithAltScreen())
+			start, err := parseShellPage(startPage)
+			if err != nil {
+				return err
+			}
+			model := tui.NewShell(client, Globals().APIBase, start)
+			prog := tea.NewProgram(model,
+				tea.WithAltScreen(),
+				tea.WithMouseCellMotion(),
+			)
 			if _, err := prog.Run(); err != nil {
 				return fmt.Errorf("tui: %w", err)
 			}
 			return nil
 		},
+	}
+	cmd.Flags().StringVar(&startPage, "page", "dashboard",
+		"Page to land on: dashboard | noc | alerts | tools | verify | account")
+	return cmd
+}
+
+// parseShellPage maps the --page flag to a ShellPage enum value.
+func parseShellPage(s string) (tui.ShellPage, error) {
+	switch s {
+	case "", "dashboard":
+		return tui.PageDashboard, nil
+	case "noc":
+		return tui.PageNoc, nil
+	case "alerts":
+		return tui.PageAlerts, nil
+	case "tools":
+		return tui.PageTools, nil
+	case "verify":
+		return tui.PageVerify, nil
+	case "account":
+		return tui.PageAccount, nil
+	default:
+		return tui.PageDashboard, fmt.Errorf("unknown page %q (try dashboard|noc|alerts|tools|verify|account)", s)
 	}
 }

@@ -14,19 +14,18 @@ import (
 func newNocCommand() *cobra.Command {
 	return &cobra.Command{
 		Use:   "noc",
-		Short: "Live operations console (mirrors /dashboard/noc on the web)",
-		Long: `Open the live NOC console: aggregate posture stats, action
-queue, and a tail of scan events across every domain you monitor.
+		Short: "Live operations console (shortcut for `tui --page noc`)",
+		Long: `Fast-launch into the NOC tab of the full TUI: aggregate posture
+stats, action queue, and a tail of scan events across every monitored
+domain.
 
-Polls the API in the background:
-  - summary  every 30s
-  - live feed every  6s
-
-Keys:
   p   pause / resume polling
   r   refresh now
   ?   full help
-  q   quit`,
+  Tab focus the sidebar to switch tabs
+  q   quit
+
+Equivalent to: postvale tui --page noc`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			client, err := newClient()
 			if err != nil {
@@ -39,11 +38,9 @@ Keys:
 				return err
 			}
 
-			model := tui.NewNoc(client)
+			model := tui.NewShell(client, Globals().APIBase, tui.PageNoc)
 			prog := tea.NewProgram(model,
 				tea.WithAltScreen(),
-				// MouseCellMotion routes wheel events through tea so
-				// the detail viewport can scroll on scroll wheel.
 				tea.WithMouseCellMotion(),
 			)
 			if _, err := prog.Run(); err != nil {
