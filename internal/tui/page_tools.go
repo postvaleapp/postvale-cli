@@ -232,6 +232,17 @@ const (
 	focusInput
 )
 
+// viewState splits the page into two screens. modeList shows the
+// catalog + domain input; modeResult takes over the whole content area
+// to show the rendered check output (no list, no input) so the result
+// reads like its own page rather than appended below the catalog.
+type viewState int
+
+const (
+	modeList viewState = iota
+	modeResult
+)
+
 type ToolsPage struct {
 	client *api.Client
 
@@ -244,10 +255,13 @@ type ToolsPage struct {
 	domain textinput.Model
 	focus  focusMode
 
-	running bool
-	output  string
-	err     error
-	took    time.Duration
+	state viewState
+
+	running    bool
+	output     string
+	err        error
+	took       time.Duration
+	resultTool string // label of the tool whose output is in `output`
 
 	vp viewport.Model
 }
@@ -277,9 +291,11 @@ func (m ToolsPage) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
-		m.vp.Width = msg.Width
-		// Reserve room for the list + input + chrome.
-		h := msg.Height - 14
+		m.vp.Width = msg.Width - 4
+		// In modeResult the viewport gets the whole page area minus a
+		// 4-line header + 2-line footer. In modeList we don't actually
+		// use the viewport for layout so the same number is fine.
+		h := msg.Height - 6
 		if h < 6 {
 			h = 6
 		}
@@ -298,80 +314,138 @@ func (m ToolsPage) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.output = msg.out
 			m.vp.SetContent(m.output)
 			m.vp.GotoTop()
+			m.state = modeResult
+			// Take focus off the input so 'q', 'r', 'esc' don't get
+			// typed as letters in the (now-hidden) domain field.
+			m.domain.Blur()
+			m.focus = focusList
 		}
+		// On error we stay on modeList; the error renders inline so
+		// the user can fix the domain + retry.
 		return m, nil
 
 	case tea.KeyMsg:
-		switch msg.String() {
-		case "esc":
-			if m.focus == focusInput {
-				m.domain.Blur()
-				m.focus = focusList
-				return m, nil
-			}
-			m.output = ""
-			m.err = nil
-			return m, nil
-		case "i":
-			if m.focus != focusInput {
-				m.focus = focusInput
-				return m, m.domain.Focus()
-			}
-		case "up", "k":
-			// Only steer the list cursor when the list is focused. When
-			// the domain input is focused, "k" is just a letter the
-			// user is typing; fall through so the textinput sees it.
-			if m.focus == focusList {
-				if m.cursor > 0 {
-					m.cursor--
-				}
-				return m, nil
-			}
-		case "down", "j":
-			if m.focus == focusList {
-				flat := flatTools(m.catalog)
-				if m.cursor < len(flat)-1 {
-					m.cursor++
-				}
-				return m, nil
-			}
-		case "enter":
-			flat := flatTools(m.catalog)
-			if m.cursor >= len(flat) || m.running {
-				return m, nil
-			}
-			d := strings.TrimSpace(m.domain.Value())
-			if d == "" {
-				m.focus = focusInput
-				return m, m.domain.Focus()
-			}
-			m.running = true
-			m.err = nil
-			m.output = ""
-			tool := flat[m.cursor]
-			return m, runToolCmd(m.client, tool, d)
-		case "pgup", "pgdown", "home", "end":
-			if m.focus != focusInput {
-				var cmd tea.Cmd
-				m.vp, cmd = m.vp.Update(msg)
-				return m, cmd
-			}
+		if m.state == modeResult {
+			return m.updateResult(msg)
 		}
+		return m.updateList(msg)
 	}
 
-	// Forward to input when input is focused. Forward scroll keys to
-	// viewport when output is showing + list is focused.
+	// Non-key, non-size messages: forward to whatever's active.
+	if m.state == modeResult {
+		var cmd tea.Cmd
+		m.vp, cmd = m.vp.Update(msg)
+		return m, cmd
+	}
 	if m.focus == focusInput {
 		var cmd tea.Cmd
 		m.domain, cmd = m.domain.Update(msg)
 		return m, cmd
 	}
-	if m.output != "" {
+	return m, nil
+}
+
+// updateList handles keys while the catalog + domain input are
+// showing. Input-focused vs list-focused gates which keys are nav vs
+// typed characters.
+func (m ToolsPage) updateList(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "esc":
+		if m.focus == focusInput {
+			m.domain.Blur()
+			m.focus = focusList
+			return m, nil
+		}
+		m.err = nil
+		return m, nil
+	case "i":
+		if m.focus != focusInput {
+			m.focus = focusInput
+			return m, m.domain.Focus()
+		}
+	case "up", "k":
+		// Only steer the list cursor when the list is focused. When
+		// the domain input is focused, "k" is just a letter the user
+		// is typing; fall through so the textinput sees it.
+		if m.focus == focusList {
+			if m.cursor > 0 {
+				m.cursor--
+			}
+			return m, nil
+		}
+	case "down", "j":
+		if m.focus == focusList {
+			flat := flatTools(m.catalog)
+			if m.cursor < len(flat)-1 {
+				m.cursor++
+			}
+			return m, nil
+		}
+	case "enter":
+		flat := flatTools(m.catalog)
+		if m.cursor >= len(flat) || m.running {
+			return m, nil
+		}
+		d := strings.TrimSpace(m.domain.Value())
+		if d == "" {
+			m.focus = focusInput
+			return m, m.domain.Focus()
+		}
+		m.running = true
+		m.err = nil
+		m.output = ""
+		tool := flat[m.cursor]
+		m.resultTool = tool.label
+		return m, runToolCmd(m.client, tool, d)
+	}
+
+	// Anything not consumed above goes to the textinput when focused.
+	if m.focus == focusInput {
 		var cmd tea.Cmd
-		m.vp, cmd = m.vp.Update(msg)
+		m.domain, cmd = m.domain.Update(msg)
 		return m, cmd
 	}
 	return m, nil
+}
+
+// updateResult handles keys while the full-screen result viewport is
+// showing. Esc / Backspace / b / q all go back to the list; r re-runs
+// the same tool against the same domain; up/down/k/j/PgUp/PgDn/etc
+// scroll the viewport. The domain textinput is blurred while in this
+// mode so plain letters can't bleed into it.
+func (m ToolsPage) updateResult(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "esc", "backspace", "b", "q", "left", "h":
+		// Back to the list. Keep the output buffer + tool label so a
+		// repeat "r" or scroll-back still works if needed; the list
+		// view ignores them.
+		m.state = modeList
+		return m, nil
+	case "r":
+		flat := flatTools(m.catalog)
+		if m.cursor >= len(flat) || m.running {
+			return m, nil
+		}
+		d := strings.TrimSpace(m.domain.Value())
+		if d == "" {
+			m.state = modeList
+			m.focus = focusInput
+			return m, m.domain.Focus()
+		}
+		m.running = true
+		m.err = nil
+		m.output = ""
+		m.state = modeList // briefly show "Running..." inline before the next done msg flips us back
+		tool := flat[m.cursor]
+		m.resultTool = tool.label
+		return m, runToolCmd(m.client, tool, d)
+	}
+
+	// Anything else: scroll the viewport (arrows, j/k, PgUp/PgDn,
+	// Home/End, mouse wheel).
+	var cmd tea.Cmd
+	m.vp, cmd = m.vp.Update(msg)
+	return m, cmd
 }
 
 func runToolCmd(c *api.Client, t toolEntry, domain string) tea.Cmd {
@@ -383,6 +457,15 @@ func runToolCmd(c *api.Client, t toolEntry, domain string) tea.Cmd {
 }
 
 func (m ToolsPage) View() string {
+	if m.state == modeResult {
+		return m.viewResult()
+	}
+	return m.viewList()
+}
+
+// viewList renders the catalog + domain input + any inline "running"
+// or "error" affordance below it.
+func (m ToolsPage) viewList() string {
 	var b strings.Builder
 	flat := flatTools(m.catalog)
 	b.WriteString("\n  ")
@@ -419,16 +502,27 @@ func (m ToolsPage) View() string {
 	} else if m.err != nil {
 		b.WriteString("  " + StyleFail.Render("Check failed:") + "\n  " +
 			StyleDim.Render(m.err.Error()) + "\n")
-	} else if m.output != "" {
-		head := fmt.Sprintf("  %s  %s",
-			StyleLabel.Render("RESULT"),
-			StyleDim.Render(fmt.Sprintf("(%s)", m.took.Round(time.Millisecond))),
-		)
-		b.WriteString(head + "\n")
-		b.WriteString(m.vp.View() + "\n")
 	} else {
 		b.WriteString("  " + StyleDim.Render(
-			"↑/↓ pick · i focus domain · ↵ run · Esc clear · Tab nav") + "\n")
+			"↑/↓ pick · i focus domain · ↵ run · Tab nav") + "\n")
 	}
+	return b.String()
+}
+
+// viewResult takes over the whole content area to show the rendered
+// check output. Top strip = tool label + duration; viewport = the
+// rendered bytes; footer = back / re-run / scroll affordances.
+func (m ToolsPage) viewResult() string {
+	var b strings.Builder
+	subtitle := fmt.Sprintf("%s · ran in %s",
+		m.resultTool,
+		m.took.Round(time.Millisecond),
+	)
+	b.WriteString("\n  ")
+	b.WriteString(pageTitle("Result", subtitle))
+	b.WriteString("\n\n")
+	b.WriteString(m.vp.View())
+	b.WriteString("\n  " + StyleDim.Render(
+		"Esc / b back  ·  r re-run  ·  ↑↓ PgUp PgDn scroll  ·  Tab nav"))
 	return b.String()
 }
