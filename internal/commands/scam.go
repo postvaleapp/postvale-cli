@@ -1,6 +1,7 @@
 package commands
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -10,18 +11,21 @@ import (
 	"github.com/postvaleapp/postvale-cli/internal/output"
 )
 
+// 10 MiB ceiling on the email blob sent to the API.
+const maxEmailBytes = 10 << 20
+
 func newScamCommand() *cobra.Command {
 	var filePath string
 	cmd := &cobra.Command{
 		Use:   "scam",
 		Short: "Scam Check - verdict + reasons for a suspicious email",
-		Long: `Run the Scam Check verdict against a raw email. Pipe the .eml
-content via stdin, or pass --file:
+		Long: `Run Scam Check against a raw email. Pipe the .eml via stdin
+or pass --file:
 
   postvale scam < suspicious.eml
   postvale scam --file suspicious.eml
 
-The verdict is one of: likely-safe, suspicious, likely-scam. With
+Verdict is one of: likely-safe, suspicious, likely-scam. With
 --exit-on-fail the CLI exits 1 for anything other than likely-safe.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			raw, err := readEmailInput(cmd.InOrStdin(), filePath)
@@ -29,7 +33,10 @@ The verdict is one of: likely-safe, suspicious, likely-scam. With
 				return err
 			}
 			if len(raw) == 0 {
-				return fmt.Errorf("no email content provided (pipe via stdin or --file)")
+				return errors.New("no email content provided (pipe via stdin or --file)")
+			}
+			if len(raw) > maxEmailBytes {
+				return fmt.Errorf("email exceeds %d-byte limit", maxEmailBytes)
 			}
 
 			client, err := newClient()
@@ -65,7 +72,14 @@ The verdict is one of: likely-safe, suspicious, likely-scam. With
 
 func readEmailInput(stdin io.Reader, filePath string) ([]byte, error) {
 	if filePath != "" {
+		info, err := os.Stat(filePath)
+		if err != nil {
+			return nil, err
+		}
+		if info.Size() > maxEmailBytes {
+			return nil, fmt.Errorf("file exceeds %d-byte limit", maxEmailBytes)
+		}
 		return os.ReadFile(filePath)
 	}
-	return io.ReadAll(stdin)
+	return io.ReadAll(io.LimitReader(stdin, maxEmailBytes+1))
 }

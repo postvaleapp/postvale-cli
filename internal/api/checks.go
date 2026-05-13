@@ -1,37 +1,16 @@
 package api
 
+// API contract is documented in docs/api-spec.md.
+
 import (
 	"fmt"
 	"net/url"
 	"strings"
 )
 
-// Phase 1 of the CLI calls a generic checks endpoint on the
-// webapp side. The endpoint accepts a tool slug + a domain and
-// returns the typed JSON result the matching /lib/checks/<tool>
-// library produces.
-//
-//	GET /api/v1/check/<tool>/<domain>
-//
-// Webapp work to land alongside this CLI:
-//   - implement /app/api/v1/check/[tool]/[domain]/route.ts
-//     that dispatches on tool ∈ { tls, dmarc, dns, headers,
-//     mta-sts, bimi, dnssec, caa, subdomains, takeover,
-//     spoofability, spf-flatten, threat-intel, full } and
-//     returns the existing check library's result struct as JSON
-//   - per-IP rate-limit via freeBurstGate('cli-check')
-//   - extension/CLI CORS already handled by extensionCorsHeaders
-//
-// Until that endpoint ships, calls will surface a 404 HTTPError -
-// the CLI prints it as "this Postvale instance doesn't expose
-// /api/v1/check yet" with a link to the upgrade docs.
-
-// CheckGrade is the standard A+ → F letter grade most check
-// libraries return.
+// A+ to F letter grade returned by every check.
 type CheckGrade string
 
-// CheckSummary is the minimal shape every check returns. Each
-// specific check type embeds + extends it.
 type CheckSummary struct {
 	Host       string     `json:"host"`
 	Grade      CheckGrade `json:"grade"`
@@ -39,9 +18,7 @@ type CheckSummary struct {
 	DurationMs int        `json:"durationMs"`
 }
 
-// FullDomainCheck is the composite report - what /check renders.
-// Combines TLS + DMARC + DNS + headers + MTA-STS + BIMI grades
-// into a single shareable summary.
+// Composite report covering TLS, DMARC, DNS, headers, MTA-STS, BIMI.
 type FullDomainCheck struct {
 	CheckSummary
 	Subgrades       map[string]CheckGrade `json:"subgrades"`
@@ -50,7 +27,6 @@ type FullDomainCheck struct {
 	ReportURL       string                `json:"reportUrl"`
 }
 
-// TLSCheck is the response from /api/v1/check/tls/<domain>.
 type TLSCheck struct {
 	CheckSummary
 	Port               int               `json:"port"`
@@ -116,7 +92,6 @@ type ParsedDMARC struct {
 	ASPF            string   `json:"aspf,omitempty"`
 }
 
-// DNSCheck is the response from /api/v1/check/dns/<domain>.
 type DNSCheck struct {
 	CheckSummary
 	Apex            string           `json:"apex"`
@@ -169,13 +144,11 @@ type BlacklistListing struct {
 	Severity string `json:"severity"`
 }
 
-// ScamCheckRequest is the body POSTed to /api/v1/triage.
 type ScamCheckRequest struct {
 	EmailRaw string `json:"emailRaw"`
 }
 
-// ScamCheckResult mirrors what /triage's existing route handler
-// returns. Trimmed to the fields the CLI renders.
+// Trimmed to the fields the CLI renders.
 type ScamCheckResult struct {
 	Verdict    string   `json:"verdict"`    // 'likely-safe' | 'suspicious' | 'likely-scam'
 	Confidence string   `json:"confidence"` // 'low' | 'medium' | 'high'
@@ -186,7 +159,6 @@ type ScamCheckResult struct {
 
 // ----- Methods -----
 
-// CheckFull runs the composite full-domain check.
 func (c *Client) CheckFull(domain string) (*FullDomainCheck, error) {
 	var out FullDomainCheck
 	if err := c.get(checkPath("full", domain), &out); err != nil {
@@ -195,7 +167,6 @@ func (c *Client) CheckFull(domain string) (*FullDomainCheck, error) {
 	return &out, nil
 }
 
-// CheckTLS runs the TLS / SSL check.
 func (c *Client) CheckTLS(domain string) (*TLSCheck, error) {
 	var out TLSCheck
 	if err := c.get(checkPath("tls", domain), &out); err != nil {
@@ -204,7 +175,6 @@ func (c *Client) CheckTLS(domain string) (*TLSCheck, error) {
 	return &out, nil
 }
 
-// CheckDMARC runs DMARC + SPF.
 func (c *Client) CheckDMARC(domain string) (*DMARCCheck, error) {
 	var out DMARCCheck
 	if err := c.get(checkPath("dmarc", domain), &out); err != nil {
@@ -213,7 +183,6 @@ func (c *Client) CheckDMARC(domain string) (*DMARCCheck, error) {
 	return &out, nil
 }
 
-// CheckDNS runs the DNS health composite.
 func (c *Client) CheckDNS(domain string) (*DNSCheck, error) {
 	var out DNSCheck
 	if err := c.get(checkPath("dns", domain), &out); err != nil {
@@ -222,8 +191,6 @@ func (c *Client) CheckDNS(domain string) (*DNSCheck, error) {
 	return &out, nil
 }
 
-// ScamCheck POSTs a raw email to /api/v1/triage and returns the
-// verdict.
 func (c *Client) ScamCheck(emailRaw string) (*ScamCheckResult, error) {
 	var out ScamCheckResult
 	if err := c.post("/api/v1/triage", &ScamCheckRequest{EmailRaw: emailRaw}, &out); err != nil {
@@ -232,9 +199,6 @@ func (c *Client) ScamCheck(emailRaw string) (*ScamCheckResult, error) {
 	return &out, nil
 }
 
-// checkPath constructs the path for /api/v1/check/<tool>/<domain>.
-// Domains are url-escaped to handle internationalised TLDs + any
-// punycode the user might paste.
 func checkPath(tool, domain string) string {
 	return fmt.Sprintf("/api/v1/check/%s/%s",
 		url.PathEscape(strings.ToLower(tool)),

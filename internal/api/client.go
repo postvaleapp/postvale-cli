@@ -1,6 +1,5 @@
-// Package api is the HTTP client for postvale.app. All commands go
-// through this package - never directly through net/http - so we can
-// add auth, retries, rate-limit awareness, and user-agent stamping
+// Package api is the HTTP client for postvale.app. All command code
+// goes through this package so auth, retries, and UA stamping live
 // in one place.
 package api
 
@@ -16,46 +15,39 @@ import (
 	"github.com/postvaleapp/postvale-cli/internal/version"
 )
 
-// Client wraps an HTTP client + base URL + optional auth token.
-// Construct with New; never construct the zero value.
+// 8 MiB ceiling on any single response body. Bounds memory if the
+// server (or a malicious one via --api) returns a huge payload.
+const maxResponseBytes = 8 << 20
+
 type Client struct {
 	base       *url.URL
 	token      string
 	httpClient *http.Client
 }
 
-// New constructs a client for the given base URL (e.g.
-// https://postvale.app). Returns an error if the URL is malformed.
-//
-// timeout controls the per-request deadline. Set to 0 for no
-// timeout (not recommended in production - prefer 30s+).
 func New(baseURL, token string, timeout time.Duration) (*Client, error) {
 	u, err := url.Parse(baseURL)
 	if err != nil {
 		return nil, fmt.Errorf("invalid api url: %w", err)
 	}
-	if u.Scheme == "" || u.Host == "" {
-		return nil, fmt.Errorf("api url missing scheme or host: %q", baseURL)
+	if u.Scheme != "http" && u.Scheme != "https" {
+		return nil, fmt.Errorf("api url must be http or https: %q", baseURL)
+	}
+	if u.Host == "" {
+		return nil, fmt.Errorf("api url missing host: %q", baseURL)
 	}
 	return &Client{
-		base:  u,
-		token: token,
-		httpClient: &http.Client{
-			Timeout: timeout,
-		},
+		base:       u,
+		token:      token,
+		httpClient: &http.Client{Timeout: timeout},
 	}, nil
 }
 
-// userAgent returns the User-Agent string the CLI sends with every
-// request. Includes the CLI version so the API can attribute traffic
-// + roll out version-gated features.
 func userAgent() string {
 	return fmt.Sprintf("postvale-cli/%s (+https://github.com/postvaleapp/postvale-cli)", version.Version)
 }
 
-// HTTPError is returned when the server responds with a non-2xx
-// status. Wraps the response code + body so callers can render a
-// useful error to the user.
+// HTTPError is returned for non-2xx responses.
 type HTTPError struct {
 	StatusCode int
 	Status     string
@@ -64,17 +56,17 @@ type HTTPError struct {
 }
 
 func (e *HTTPError) Error() string {
-	// Try to extract { "error": "...", "message": "..." } shape if
-	// the server returned JSON. Falls back to plain text otherwise.
 	var parsed struct {
 		Error   string `json:"error"`
 		Message string `json:"message"`
 	}
-	if err := json.Unmarshal(e.Body, &parsed); err == nil && (parsed.Error != "" || parsed.Message != "") {
+	if err := json.Unmarshal(e.Body, &parsed); err == nil {
 		if parsed.Message != "" {
 			return fmt.Sprintf("api: %s (%s)", parsed.Message, e.Status)
 		}
-		return fmt.Sprintf("api: %s (%s)", parsed.Error, e.Status)
+		if parsed.Error != "" {
+			return fmt.Sprintf("api: %s (%s)", parsed.Error, e.Status)
+		}
 	}
 	preview := string(e.Body)
 	if len(preview) > 200 {
@@ -86,13 +78,10 @@ func (e *HTTPError) Error() string {
 	return fmt.Sprintf("api: %s for %s: %s", e.Status, e.URL, preview)
 }
 
-// get issues an authenticated GET to path (relative to the base URL).
-// Body is decoded into out (a pointer to the response struct).
 func (c *Client) get(path string, out any) error {
 	return c.do(http.MethodGet, path, nil, out)
 }
 
-// post issues an authenticated POST with a JSON body.
 func (c *Client) post(path string, body any, out any) error {
 	var rdr io.Reader
 	if body != nil {
@@ -106,7 +95,7 @@ func (c *Client) post(path string, body any, out any) error {
 }
 
 func (c *Client) do(method, path string, body io.Reader, out any) error {
-	u := *c.base // copy
+	u := *c.base
 	u.Path = path
 
 	req, err := http.NewRequest(method, u.String(), body)
@@ -128,9 +117,12 @@ func (c *Client) do(method, path string, body io.Reader, out any) error {
 	}
 	defer resp.Body.Close()
 
-	buf, err := io.ReadAll(resp.Body)
+	buf, err := io.ReadAll(io.LimitReader(resp.Body, maxResponseBytes+1))
 	if err != nil {
 		return fmt.Errorf("read response: %w", err)
+	}
+	if int64(len(buf)) > maxResponseBytes {
+		return fmt.Errorf("response exceeded %d bytes", maxResponseBytes)
 	}
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {

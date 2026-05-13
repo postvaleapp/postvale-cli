@@ -1,7 +1,4 @@
-// Package output renders API responses to the terminal. The base
-// styles + colour palette live here so every command uses the same
-// look (amber accent, slate text, emerald/red verdict colours that
-// match the web brand).
+// Package output renders API responses to the terminal.
 package output
 
 import (
@@ -9,9 +6,8 @@ import (
 	"github.com/muesli/termenv"
 )
 
-// Adaptive colours - Lipgloss picks the right side of the pair
-// based on the terminal's background (light vs dark). Keeps things
-// readable on both `iTerm light` and `Alacritty dark` setups.
+// Adaptive colours: Lipgloss picks the right side based on the
+// terminal background.
 var (
 	colAmber       = lipgloss.AdaptiveColor{Light: "#B45309", Dark: "#FBBF24"}
 	colSlate       = lipgloss.AdaptiveColor{Light: "#475569", Dark: "#94A3B8"}
@@ -23,8 +19,6 @@ var (
 	colBorder      = lipgloss.AdaptiveColor{Light: "#CBD5E1", Dark: "#334155"}
 )
 
-// Re-exported helpers so command code can compose its own styles
-// without re-deriving the palette.
 var (
 	StyleHeader = lipgloss.NewStyle().
 			Foreground(colAmber).
@@ -55,8 +49,6 @@ var (
 			Padding(0, 2)
 )
 
-// GradeStyle returns the colour for a given letter grade. Keeps the
-// "A is emerald, F is red" mapping consistent across every renderer.
 func GradeStyle(grade string) lipgloss.Style {
 	switch grade {
 	case "A+", "A":
@@ -70,7 +62,6 @@ func GradeStyle(grade string) lipgloss.Style {
 	}
 }
 
-// VerdictStyle returns the colour for a Scam Check verdict.
 func VerdictStyle(verdict string) lipgloss.Style {
 	switch verdict {
 	case "likely-safe":
@@ -84,8 +75,7 @@ func VerdictStyle(verdict string) lipgloss.Style {
 	}
 }
 
-// Disable strips colour codes globally. Used for --no-color or when
-// stdout isn't a TTY. Call before any rendering.
+// Disable strips ANSI globally. Called for --no-color or non-TTY out.
 func Disable() {
 	lipgloss.SetColorProfile(termenv.Ascii)
 }

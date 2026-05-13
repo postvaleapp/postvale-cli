@@ -10,8 +10,6 @@ import (
 	"github.com/postvaleapp/postvale-cli/internal/api"
 )
 
-// RenderFullCheck prints the composite domain-check report in the
-// boxed layout. Mirrors the visual shape of the web /check page.
 func RenderFullCheck(w io.Writer, r *api.FullDomainCheck) {
 	// Header row: "domain" + grade pill
 	gradeStyle := GradeStyle(string(r.Grade))
@@ -64,9 +62,7 @@ func RenderFullCheck(w io.Writer, r *api.FullDomainCheck) {
 	}
 }
 
-// subgradeOrder returns the keys of the subgrades map in the order
-// we want to display them. We hard-code the canonical sequence so
-// the report reads top-to-bottom in the same order every time.
+// Canonical display order; unknown keys appended at the end.
 func subgradeOrder(g map[string]api.CheckGrade) []string {
 	canonical := []string{"tls", "dmarc", "spf", "dkim", "mta-sts", "dnssec", "caa", "headers", "bimi"}
 	out := make([]string, 0, len(g))
@@ -91,7 +87,6 @@ func subgradeOrder(g map[string]api.CheckGrade) []string {
 	return out
 }
 
-// RenderTLS prints the TLS check result.
 func RenderTLS(w io.Writer, r *api.TLSCheck) {
 	if !r.Reachable {
 		fmt.Fprintln(w, StyleFail.Render(fmt.Sprintf("✗ %s:%d unreachable", r.Host, r.Port)))
@@ -159,7 +154,6 @@ func RenderTLS(w io.Writer, r *api.TLSCheck) {
 	}
 }
 
-// RenderDMARC prints the DMARC + SPF check result.
 func RenderDMARC(w io.Writer, r *api.DMARCCheck) {
 	fmt.Fprintf(w, "%s    %s\n",
 		StyleStrong.Render(r.Host),
@@ -200,7 +194,6 @@ func RenderDMARC(w io.Writer, r *api.DMARCCheck) {
 	renderRecs(w, r.Recommendations)
 }
 
-// RenderDNS prints the DNS health check result.
 func RenderDNS(w io.Writer, r *api.DNSCheck) {
 	fmt.Fprintf(w, "%s    %s\n",
 		StyleStrong.Render(r.Host),
@@ -264,7 +257,6 @@ func RenderDNS(w io.Writer, r *api.DNSCheck) {
 	renderRecs(w, r.Recommendations)
 }
 
-// RenderScamCheck prints the Scam Check verdict.
 func RenderScamCheck(w io.Writer, r *api.ScamCheckResult) {
 	style := VerdictStyle(r.Verdict)
 	verdictLabel := strings.ReplaceAll(r.Verdict, "-", " ")
@@ -323,8 +315,7 @@ func renderRecs(w io.Writer, recs []string) {
 	}
 }
 
-// ShouldFail returns true when --exit-on-fail should cause a non-zero
-// exit. Centralised so each command applies the same rule.
+// Used by --exit-on-fail. Centralised so every command agrees.
 func ShouldFail(grade string) bool {
 	switch grade {
 	case "A+", "A", "B":

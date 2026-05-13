@@ -15,8 +15,6 @@ import (
 	"github.com/postvaleapp/postvale-cli/internal/output"
 )
 
-// newClient builds an API client using the resolved global flags.
-// Centralised so every command builds its client the same way.
 func newClient() (*api.Client, error) {
 	g := Globals()
 	timeout := time.Duration(g.Timeout) * time.Second
@@ -26,8 +24,7 @@ func newClient() (*api.Client, error) {
 	return api.New(g.APIBase, g.Token, timeout)
 }
 
-// configureOutput honours --no-color + auto-disables ANSI when
-// stdout isn't a TTY (so piped output stays clean).
+// Honour --no-color and auto-disable ANSI when piped.
 func configureOutput(out io.Writer) {
 	g := Globals()
 	if g.NoColor {
@@ -41,12 +38,9 @@ func configureOutput(out io.Writer) {
 	}
 }
 
-// domainRE matches valid-looking domains. Reject IPs, ports, schemes;
-// the user has plenty of other CLI tools for those edge cases.
+// Rejects IPs, ports, schemes; the user has other tools for those.
 var domainRE = regexp.MustCompile(`^([a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,}$`)
 
-// normaliseDomain strips a leading scheme, path, port + lower-cases.
-// Returns ("", error) for inputs that don't look like a domain.
 func normaliseDomain(raw string) (string, error) {
 	d := strings.TrimSpace(strings.ToLower(raw))
 	if d == "" {
@@ -67,10 +61,5 @@ func normaliseDomain(raw string) (string, error) {
 	return d, nil
 }
 
-// failExit returns the right exit code for --exit-on-fail.
-// Returning an error from RunE doesn't let us control the exit code
-// granularly, so we os.Exit directly. Callers should call this
-// AFTER all output has flushed.
-func failExit() {
-	os.Exit(1)
-}
+// Forces a non-zero exit. Call after all output has flushed.
+func failExit() { os.Exit(1) }

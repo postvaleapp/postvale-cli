@@ -51,6 +51,16 @@ else
   version="$POSTVALE_VERSION"
 fi
 
+# Reject anything that doesn't look like a semver tag. Stops attempts
+# to smuggle arbitrary path components through POSTVALE_VERSION.
+case "$version" in
+  v[0-9]*.[0-9]*.[0-9]*) : ;;
+  *)
+    echo "invalid version $version (expected vX.Y.Z)" >&2
+    exit 1
+    ;;
+esac
+
 # Strip leading v for the archive name
 ver_num="${version#v}"
 archive="postvale_${ver_num}_${os}_${arch}.tar.gz"
