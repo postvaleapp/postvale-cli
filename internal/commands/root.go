@@ -77,6 +77,8 @@ and --exit-on-fail to gate deploys on posture grades.`,
 	root.AddCommand(newWatchCommand())
 	root.AddCommand(newAlertsCommand())
 	root.AddCommand(newWorkpaperCommand())
+	root.AddCommand(newTuiCommand())
+	root.AddCommand(newCiCommand())
 
 	return root
 }

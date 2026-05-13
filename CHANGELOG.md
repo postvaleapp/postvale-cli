@@ -17,6 +17,12 @@ versioning follows [SemVer](https://semver.org/).
   - `watch <domain>` / `watch list` / `watch remove <domain-or-id>`
   - `alerts` (lists configured webhook + email endpoints)
   - `workpaper <type> <domain> [--out path]` (streams PDF)
+- Phase 3 (TUI + CI):
+  - `tui`: Bubbletea dashboard with a domains table, refresh,
+    detail view, in-browser deep-link, help overlay
+  - `ci` subcommands (`ci check`, `ci tls`, `ci dmarc`, `ci dns`,
+    `ci headers`, `ci dnssec`, `ci spoof`, `ci takeover`) which
+    force --quiet, --no-color, --exit-on-fail by default
 - Global flags: `--json`, `--quiet`, `--no-color`, `--exit-on-fail`,
   `--timeout`, `--api`, `--token`, `--config`
 - `POSTVALE_API` + `POSTVALE_TOKEN` env-var fallbacks
