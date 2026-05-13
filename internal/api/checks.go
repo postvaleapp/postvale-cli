@@ -714,3 +714,34 @@ func (c *Client) BrandWatchlist() (*BrandWatchlistResp, error) {
 	}
 	return &out, nil
 }
+
+// ---- leak sites (Pro+) ----
+
+type LeakSiteFinding struct {
+	ID                string  `json:"id"`
+	GroupName         string  `json:"groupName"`
+	VictimTitle       string  `json:"victimTitle"`
+	Match             string  `json:"match"`
+	MatchSource       string  `json:"matchSource"`
+	MonitoredDomainID *string `json:"monitoredDomainId,omitempty"`
+	WatchlistID       *string `json:"watchlistId,omitempty"`
+	PostURL           *string `json:"postUrl,omitempty"`
+	PublishedAt       *string `json:"publishedAt,omitempty"`
+	FirstSeenAt       string  `json:"firstSeenAt"`
+	LastSeenAt        string  `json:"lastSeenAt"`
+	Alerted           bool    `json:"alerted"`
+}
+
+type LeakSitesResp struct {
+	Findings []LeakSiteFinding `json:"findings"`
+	Count    int               `json:"count"`
+	Limit    int               `json:"limit"`
+}
+
+func (c *Client) LeakSites() (*LeakSitesResp, error) {
+	var out LeakSitesResp
+	if err := c.get("/api/v1/leak-sites", &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
