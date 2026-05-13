@@ -175,6 +175,12 @@ type NocModel struct {
 	// viewport lets the operator scroll instead of having the top
 	// clipped off-screen.
 	detailViewport viewport.Model
+
+	// freshScans maps scan-result ID to the wall-clock time it
+	// first landed in the feed buffer. Used to render a brief
+	// fade-in highlight on the live-feed row so new entries
+	// announce themselves rather than silently appearing.
+	freshScans map[string]time.Time
 }
 
 func NewNoc(client *api.Client) NocModel {
@@ -187,6 +193,7 @@ func NewNoc(client *api.Client) NocModel {
 		bornAt:         now,
 		prevGrades:     make(map[string]string),
 		detailViewport: viewport.New(0, 0),
+		freshScans:     make(map[string]time.Time),
 	}
 }
 
@@ -355,6 +362,29 @@ func (m NocModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.feed = combined
 		m.feedCursor = msg.scans[0].RanAt
+
+		// Mark the freshly-arrived scans so the live feed can briefly
+		// highlight them. Old fresh marks beyond 2s are reaped so the
+		// map doesn't grow unbounded over a long session.
+		now := time.Now()
+		for _, s := range fresh {
+			m.freshScans[s.ID] = now
+		}
+		for id, t := range m.freshScans {
+			if now.Sub(t) > 2*time.Second {
+				delete(m.freshScans, id)
+			}
+		}
+		return m, nil
+
+	case tea.MouseMsg:
+		// Mouse wheel scrolling on the detail viewport. Main view
+		// has no scrollable region so we ignore mouse events there.
+		if m.detailDomain != nil {
+			var cmd tea.Cmd
+			m.detailViewport, cmd = m.detailViewport.Update(msg)
+			return m, cmd
+		}
 		return m, nil
 
 	case tea.KeyMsg:
@@ -897,22 +927,36 @@ func (m NocModel) renderDomains(maxLines int) string {
 				prefix = lipgloss.NewStyle().Foreground(colAmberMid).Render("❯ ")
 			}
 		}
-		b.WriteString(prefix)
 		hostCell := truncate(host, 26)
 		if i == cursor {
 			hostCell = StyleStrong.Render(hostCell)
 		}
-		b.WriteString(hostCell)
-		b.WriteString(GradeStyle(grade).Render(padRight(grade, 6)))
-		b.WriteString(sparkline(m.feed, d.Host, sparkW))
-		b.WriteString(" ")
-		b.WriteString(subGrade(d.LastGrades, "tls", 4))
-		b.WriteString(subGrade(d.LastGrades, "dmarc", 6))
-		b.WriteString(subGrade(d.LastGrades, "dns", 4))
-		b.WriteString(subGrade(d.LastGrades, "headers", 4))
-		b.WriteString(subGrade(d.LastGrades, "mtaSts", 4))
-		b.WriteString(StyleDim.Render(padRight(last, 7)))
-		b.WriteString("\n")
+
+		// Build the row body first so we can optionally wrap it in a
+		// pulsing background for D/F rows below.
+		row := prefix + hostCell +
+			GradeStyle(grade).Render(padRight(grade, 6)) +
+			sparkline(m.feed, d.Host, sparkW) + " " +
+			subGrade(d.LastGrades, "tls", 4) +
+			subGrade(d.LastGrades, "dmarc", 6) +
+			subGrade(d.LastGrades, "dns", 4) +
+			subGrade(d.LastGrades, "headers", 4) +
+			subGrade(d.LastGrades, "mtaSts", 4) +
+			StyleDim.Render(padRight(last, 7))
+
+		// Warning highlight: pulse a subtle red background on rows
+		// that just landed at D or F. Two-stage pulse at ~0.7Hz so
+		// it draws the eye without strobing.
+		if grade == "D" || grade == "F" {
+			phase := (m.now.UnixMilli() / 700) % 2
+			bg := lipgloss.Color("#1F0606")
+			if phase == 0 {
+				bg = lipgloss.Color("#2E0A0A")
+			}
+			row = lipgloss.NewStyle().Background(bg).Render(row)
+		}
+
+		b.WriteString(row + "\n")
 	}
 	return b.String()
 }
@@ -952,6 +996,55 @@ func sparkline(feed []api.RecentScan, host string, n int) string {
 		b.WriteString(GradeStyle(g).Render(gradeBlock(g)))
 	}
 	return b.String()
+}
+
+// gradeGauge renders a small labeled dot meter showing where the
+// current worst grade falls on the F → A+ scale. Each dot is coloured
+// by its own grade level (red for F, amber for B/C, green for A/A+)
+// so the operator reads the scale at a glance, with a bright arrow
+// pointing at the current position. Real circular ASCII arcs render
+// terribly at terminal char ratios so we avoid them.
+func gradeGauge(grade string) string {
+	levels := []string{"F", "D", "C", "B", "A", "A+"}
+	pos := -1
+	for i, lv := range levels {
+		if lv == grade {
+			pos = i
+			break
+		}
+	}
+
+	var labels []string
+	var dots []string
+	for i, lv := range levels {
+		label := lv
+		if len(lv) == 1 {
+			label = " " + lv
+		}
+		labels = append(labels, StyleDim.Render(label))
+
+		dot := GradeStyle(lv).Render(" ●")
+		if i == pos {
+			dot = GradeStyle(lv).Bold(true).Render(" ●")
+		}
+		dots = append(dots, dot)
+	}
+
+	arrowLine := ""
+	currLine := ""
+	if pos >= 0 {
+		col := pos*3 + 1
+		arrowLine = strings.Repeat(" ", col) + StyleHeader.Bold(true).Render("▲")
+		currLine = strings.Repeat(" ", col) + GradeStyle(grade).Bold(true).Render(grade)
+	}
+
+	return strings.Join([]string{
+		StyleDim.Render("Grade meter"),
+		strings.Join(labels, " "),
+		strings.Join(dots, ""),
+		arrowLine,
+		currLine,
+	}, "\n")
 }
 
 // bigGradeArt - 5-row ASCII letter shapes for the worst-grade hero
@@ -1237,7 +1330,25 @@ func (m NocModel) renderLiveFeed(maxLines int) string {
 		if grade == "" {
 			grade = "-"
 		}
-		b.WriteString(fmt.Sprintf(" %s  %s  %s\n",
+
+		// Fresh-entry indicator: arrow brightens then fades over ~1s
+		// after the scan first lands in the buffer. Catches the eye
+		// when something new comes in without forcing a full reflow.
+		prefix := " "
+		if addedAt, ok := m.freshScans[s.ID]; ok {
+			age := m.now.Sub(addedAt)
+			switch {
+			case age < 200*time.Millisecond:
+				prefix = StyleHeader.Bold(true).Render("◀")
+			case age < 500*time.Millisecond:
+				prefix = StyleHeader.Render("◀")
+			case age < 1000*time.Millisecond:
+				prefix = StyleWarn.Render("◀")
+			}
+		}
+
+		b.WriteString(fmt.Sprintf("%s %s  %s  %s\n",
+			prefix,
 			StyleDim.Render(clock),
 			truncate(s.Host, 26),
 			GradeStyle(grade).Render(grade),
@@ -1368,8 +1479,10 @@ func (m NocModel) renderDetail() string {
 	}
 	hero := lipgloss.JoinHorizontal(lipgloss.Top,
 		bigLetter,
-		"   ",
+		"    ",
 		strings.Join(facts, "\n"),
+		"    ",
+		gradeGauge(grade),
 	)
 	out.WriteString(hero + "\n\n")
 

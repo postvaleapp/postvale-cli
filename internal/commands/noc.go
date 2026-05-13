@@ -40,7 +40,12 @@ Keys:
 			}
 
 			model := tui.NewNoc(client)
-			prog := tea.NewProgram(model, tea.WithAltScreen())
+			prog := tea.NewProgram(model,
+				tea.WithAltScreen(),
+				// MouseCellMotion routes wheel events through tea so
+				// the detail viewport can scroll on scroll wheel.
+				tea.WithMouseCellMotion(),
+			)
 			if _, err := prog.Run(); err != nil {
 				return fmt.Errorf("noc: %w", err)
 			}
