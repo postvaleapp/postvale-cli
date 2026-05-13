@@ -169,16 +169,18 @@ Exit code 0 on PASS, 1 on FAIL. Use --json to get machine output.`,
 // ----- chain math (mirrors src/lib/audit-chain.ts in the webapp) -----
 
 type exportedRow struct {
-	ID        int64                  `json:"id"`
-	UserID    *string                `json:"user_id"`
-	Action    string                 `json:"action"`
-	Resource  *string                `json:"resource"`
-	Metadata  map[string]interface{} `json:"metadata"`
-	IP        *string                `json:"ip"`
-	UserAgent *string                `json:"user_agent"`
-	CreatedAt string                 `json:"created_at"`
-	PrevHash  *string                `json:"prev_hash"`
-	RowHash   string                 `json:"row_hash"`
+	ID           int64                  `json:"id"`
+	UserID       *string                `json:"user_id"`
+	Action       string                 `json:"action"`
+	Resource     *string                `json:"resource"`
+	Metadata     map[string]interface{} `json:"metadata"`
+	IP           *string                `json:"ip"`
+	UserAgent    *string                `json:"user_agent"`
+	CreatedAt    string                 `json:"created_at"`
+	PrevHash     *string                `json:"prev_hash"`
+	RowHash      string                 `json:"row_hash"`
+	UserPrevHash *string                `json:"user_prev_hash,omitempty"`
+	UserRowHash  *string                `json:"user_row_hash,omitempty"`
 }
 
 // canonicalJSON emits a deterministic JSON encoding: object keys sorted
@@ -326,7 +328,16 @@ type verifyResult struct {
 		Declared string `json:"declared"`
 		Computed string `json:"computed"`
 	} `json:"firstMismatch,omitempty"`
-	DurationMs int64 `json:"durationMs"`
+	PerUser    []perUserChainResult `json:"perUser,omitempty"`
+	DurationMs int64                `json:"durationMs"`
+}
+
+type perUserChainResult struct {
+	UserID             string `json:"userId"`
+	RowsChecked        int    `json:"rowsChecked"`
+	OK                 bool   `json:"ok"`
+	Head               string `json:"head,omitempty"`
+	FirstMismatchRowID int64  `json:"firstMismatchRowId,omitempty"`
 }
 
 func verifyChain(rows []exportedRow, anchorHead string) verifyResult {
@@ -380,8 +391,52 @@ func verifyChain(rows []exportedRow, anchorHead string) verifyResult {
 		}
 	}
 
+	// v2 per-user chain check. One entry per user_id appearing in the
+	// export. Rows without user_row_hash are skipped (anonymous or
+	// pre-v2 events).
+	perUser := map[string]*perUserChainResult{}
+	for _, r := range rows {
+		if r.UserID == nil || r.UserRowHash == nil {
+			continue
+		}
+		uid := *r.UserID
+		st := perUser[uid]
+		if st == nil {
+			st = &perUserChainResult{UserID: uid, OK: true}
+			perUser[uid] = st
+		}
+		if !st.OK {
+			continue
+		}
+		var prevHashStr string
+		if r.UserPrevHash != nil {
+			prevHashStr = *r.UserPrevHash
+		}
+		if st.Head != "" && prevHashStr != st.Head {
+			st.OK = false
+			st.FirstMismatchRowID = r.ID
+			continue
+		}
+		computed := computeRowHash(r, r.UserPrevHash)
+		if computed != *r.UserRowHash {
+			st.OK = false
+			st.FirstMismatchRowID = r.ID
+			continue
+		}
+		st.Head = *r.UserRowHash
+		st.RowsChecked++
+	}
+	perUserOK := true
+	for _, st := range perUser {
+		res.PerUser = append(res.PerUser, *st)
+		if !st.OK {
+			perUserOK = false
+		}
+	}
+
 	res.OK = res.FirstMismatch == nil &&
-		(anchorHead == "" || res.AnchorMatch == "match")
+		(anchorHead == "" || res.AnchorMatch == "match") &&
+		perUserOK
 	res.DurationMs = time.Since(start).Milliseconds()
 	return res
 }
@@ -411,6 +466,24 @@ func printVerifyResult(r verifyResult) {
 		fmt.Println()
 		fmt.Printf("    declared: %s\n", r.FirstMismatch.Declared)
 		fmt.Printf("    computed: %s\n", r.FirstMismatch.Computed)
+	}
+	if len(r.PerUser) > 0 {
+		fmt.Println("\n  per-user chains:")
+		for _, u := range r.PerUser {
+			status := "\033[32m✓\033[0m"
+			if !u.OK {
+				status = "\033[31m✗\033[0m"
+			}
+			uid := u.UserID
+			if len(uid) > 8 {
+				uid = uid[:8] + "…"
+			}
+			fmt.Printf("    %s  user %-12s  %d rows", status, uid, u.RowsChecked)
+			if u.FirstMismatchRowID > 0 {
+				fmt.Printf("  (mismatch at row %d)", u.FirstMismatchRowID)
+			}
+			fmt.Println()
+		}
 	}
 	fmt.Println()
 }
