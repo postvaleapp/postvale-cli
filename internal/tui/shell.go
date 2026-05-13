@@ -22,6 +22,7 @@ const (
 	PageDashboard ShellPage = iota
 	PageNoc
 	PageAlerts
+	PageBrand
 	PageTools
 	PageVerify
 	PageAccount
@@ -47,6 +48,9 @@ var sidebarTree = []sidebarSection{
 		{PageDashboard, "Dashboard"},
 		{PageNoc, "NOC console"},
 		{PageAlerts, "Alerts"},
+	}},
+	{"MONITORING", []sidebarItem{
+		{PageBrand, "Brand watch"},
 	}},
 	{"TOOLS", []sidebarItem{
 		{PageTools, "Free tools"},
@@ -154,6 +158,8 @@ func (s Shell) ensurePage(p ShellPage) (Shell, tea.Cmd) {
 		m = noc
 	case PageAlerts:
 		m = newAlertsPage(s.client, s.apiBase)
+	case PageBrand:
+		m = newBrandWatchPage(s.client)
 	case PageTools:
 		m = newToolsPage(s.client)
 	case PageVerify:

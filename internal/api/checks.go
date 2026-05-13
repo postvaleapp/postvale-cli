@@ -663,3 +663,48 @@ func checkPath(tool, domain string) string {
 		url.PathEscape(strings.ToLower(domain)),
 	)
 }
+
+// ---- brand watchlist (Pro+) ----
+
+type BrandWatchlist struct {
+	ID            string  `json:"id"`
+	Keyword       string  `json:"keyword"`
+	Label         *string `json:"label,omitempty"`
+	IsActive      bool    `json:"isActive"`
+	LastScannedAt *string `json:"lastScannedAt,omitempty"`
+	CreatedAt     string  `json:"createdAt"`
+}
+
+type BrandWatchlistMatch struct {
+	ID                 string  `json:"id"`
+	WatchlistID        string  `json:"watchlistId"`
+	Keyword            string  `json:"keyword"`
+	Candidate          string  `json:"candidate"`
+	Source             string  `json:"source"`
+	HasA               bool    `json:"hasA"`
+	HasMx              bool    `json:"hasMx"`
+	HasNs              bool    `json:"hasNs"`
+	ThreatIntelListed  *bool   `json:"threatIntelListed,omitempty"`
+	ThreatIntelGrade   *string `json:"threatIntelGrade,omitempty"`
+	ThreatIntelSummary *string `json:"threatIntelSummary,omitempty"`
+	KitBrand           *string `json:"kitBrand,omitempty"`
+	KitScore           *string `json:"kitScore,omitempty"`
+	KitHomepageURL     *string `json:"kitHomepageUrl,omitempty"`
+	FirstSeenAt        string  `json:"firstSeenAt"`
+	LastSeenAt         string  `json:"lastSeenAt"`
+}
+
+type BrandWatchlistResp struct {
+	Watchlists      []BrandWatchlist      `json:"watchlists"`
+	Matches         []BrandWatchlistMatch `json:"matches"`
+	MatchWindowDays int                   `json:"matchWindowDays"`
+	MatchLimit      int                   `json:"matchLimit"`
+}
+
+func (c *Client) BrandWatchlist() (*BrandWatchlistResp, error) {
+	var out BrandWatchlistResp
+	if err := c.get("/api/v1/brand-watchlist", &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
