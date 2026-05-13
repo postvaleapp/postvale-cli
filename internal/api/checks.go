@@ -466,6 +466,13 @@ func (c *Client) CheckThreatIntel(domain string) (*ThreatIntelCheck, error) {
 	return &out, nil
 }
 
+// CheckGeneric runs an arbitrary tool from /api/v1/check/<tool>/<domain>
+// and decodes the JSON into the supplied destination. Useful when the
+// caller wants a tool that doesn't have a typed shape yet.
+func (c *Client) CheckGeneric(tool, domain string, out any) error {
+	return c.get(checkPath(tool, domain), out)
+}
+
 // Me is the response from GET /api/v1/me. Trimmed to what `auth
 // whoami` renders; key + authMethod fields available but we don't
 // surface them today.

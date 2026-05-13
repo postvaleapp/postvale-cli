@@ -81,6 +81,8 @@ and --exit-on-fail to gate deploys on posture grades.`,
 	root.AddCommand(newNocCommand())
 	root.AddCommand(newCiCommand())
 	root.AddCommand(newAuditCommand())
+	root.AddCommand(newVendorsCommand())
+	root.AddCommand(newEvidencePackCommand())
 
 	return root
 }
