@@ -745,3 +745,35 @@ func (c *Client) LeakSites() (*LeakSitesResp, error) {
 	}
 	return &out, nil
 }
+
+// ---- credential leaks (Pro+) ----
+
+type CredentialLeakFinding struct {
+	ID                string   `json:"id"`
+	MonitoredDomainID string   `json:"monitoredDomainId"`
+	Domain            *string  `json:"domain,omitempty"`
+	BreachName        string   `json:"breachName"`
+	BreachTitle       *string  `json:"breachTitle,omitempty"`
+	BreachedDomain    *string  `json:"breachedDomain,omitempty"`
+	AccountCount      *int     `json:"accountCount,omitempty"`
+	DataClasses       []string `json:"dataClasses"`
+	BreachDate        *string  `json:"breachDate,omitempty"`
+	AddedAt           *string  `json:"addedAt,omitempty"`
+	FirstSeenAt       string   `json:"firstSeenAt"`
+	LastSeenAt        string   `json:"lastSeenAt"`
+	Alerted           bool     `json:"alerted"`
+}
+
+type CredentialLeaksResp struct {
+	Findings []CredentialLeakFinding `json:"findings"`
+	Count    int                     `json:"count"`
+	Limit    int                     `json:"limit"`
+}
+
+func (c *Client) CredentialLeaks() (*CredentialLeaksResp, error) {
+	var out CredentialLeaksResp
+	if err := c.get("/api/v1/credential-leaks", &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}

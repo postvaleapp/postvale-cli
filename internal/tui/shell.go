@@ -24,6 +24,7 @@ const (
 	PageAlerts
 	PageBrand
 	PageLeak
+	PageCreds
 	PageTools
 	PageVerify
 	PageAccount
@@ -53,6 +54,7 @@ var sidebarTree = []sidebarSection{
 	{"MONITORING", []sidebarItem{
 		{PageBrand, "Brand watch"},
 		{PageLeak, "Leak sites"},
+		{PageCreds, "Credentials"},
 	}},
 	{"TOOLS", []sidebarItem{
 		{PageTools, "Free tools"},
@@ -164,6 +166,8 @@ func (s Shell) ensurePage(p ShellPage) (Shell, tea.Cmd) {
 		m = newBrandWatchPage(s.client)
 	case PageLeak:
 		m = newLeakSitesPage(s.client)
+	case PageCreds:
+		m = newCredentialLeaksPage(s.client)
 	case PageTools:
 		m = newToolsPage(s.client)
 	case PageVerify:
