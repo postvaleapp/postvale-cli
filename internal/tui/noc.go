@@ -297,6 +297,7 @@ func (m NocModel) renderPanes() string {
 		bodyH = 12
 	}
 	rightH := bodyH / 2
+	feedH := bodyH - rightH - 1
 
 	left := renderPanel("DOMAINS · "+fmt.Sprintf("%d", len(m.domains)),
 		m.renderDomains(), leftW, bodyH)
@@ -306,8 +307,12 @@ func (m NocModel) renderPanes() string {
 	}
 	rightTop := renderPanel(fmt.Sprintf("ACTION QUEUE · %d", queueCount),
 		m.renderActionQueue(), rightW, rightH)
+	// 4 lines of panel chrome: top border, title, rule, bottom border.
+	// Feed buffer caps at 200 but the visible window has to match the
+	// panel; otherwise lipgloss expands the panel past bodyH and the
+	// stats bar + left pane scroll off the top of the alt-screen.
 	rightBot := renderPanel("LIVE FEED",
-		m.renderLiveFeed(), rightW, bodyH-rightH-1)
+		m.renderLiveFeed(feedH-4), rightW, feedH)
 	right := rightTop + "\n" + rightBot
 
 	return lipgloss.JoinHorizontal(lipgloss.Top, left, "  ", right)
@@ -395,12 +400,16 @@ func (m NocModel) renderActionQueue() string {
 	return b.String()
 }
 
-func (m NocModel) renderLiveFeed() string {
+func (m NocModel) renderLiveFeed(maxLines int) string {
 	if len(m.feed) == 0 {
 		return "\n  " + StyleDim.Render("waiting for the next scan…") + "\n"
 	}
+	feed := m.feed
+	if maxLines > 0 && len(feed) > maxLines {
+		feed = feed[:maxLines]
+	}
 	var b strings.Builder
-	for _, s := range m.feed {
+	for _, s := range feed {
 		clock := formatClock(s.RanAt)
 		grade := s.WorstGrade
 		if grade == "" {
@@ -479,11 +488,16 @@ func renderPanel(title, body string, width, height int) string {
 		Bold(true).
 		Render(title)
 	border := lipgloss.RoundedBorder()
+	// MaxHeight/MaxWidth clip overlong content. Without them, content
+	// longer than the requested dimensions expands the panel and breaks
+	// the surrounding layout.
 	style := lipgloss.NewStyle().
 		Border(border).
 		BorderForeground(lipgloss.AdaptiveColor{Light: "#CBD5E1", Dark: "#334155"}).
 		Width(width).
-		Height(height)
+		Height(height).
+		MaxWidth(width + 2).
+		MaxHeight(height + 2)
 	header := lipgloss.NewStyle().
 		Foreground(lipgloss.AdaptiveColor{Light: "#94A3B8", Dark: "#64748B"}).
 		Render(strings.Repeat("─", width-2))
