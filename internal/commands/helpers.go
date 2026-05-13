@@ -12,6 +12,7 @@ import (
 	"github.com/mattn/go-isatty"
 
 	"github.com/postvaleapp/postvale-cli/internal/api"
+	"github.com/postvaleapp/postvale-cli/internal/auth"
 	"github.com/postvaleapp/postvale-cli/internal/output"
 )
 
@@ -21,7 +22,16 @@ func newClient() (*api.Client, error) {
 	if g.Timeout <= 0 {
 		timeout = 30 * time.Second
 	}
-	return api.New(g.APIBase, g.Token, timeout)
+	token := g.Token
+	if token == "" {
+		// Try the stored credential as a fallback so most commands
+		// can just be run without --token. Anonymous routes don't
+		// care if this returns ErrNotLoggedIn.
+		if t, err := auth.Load(); err == nil {
+			token = t
+		}
+	}
+	return api.New(g.APIBase, token, timeout)
 }
 
 // Honour --no-color and auto-disable ANSI when piped.

@@ -58,6 +58,7 @@ and --exit-on-fail to gate deploys on posture grades.`,
 	}
 
 	root.AddCommand(newVersionCommand())
+	root.AddCommand(newAuthCommand())
 	root.AddCommand(newCheckCommand())
 	root.AddCommand(newTLSCommand())
 	root.AddCommand(newDMARCCommand())

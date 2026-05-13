@@ -466,6 +466,29 @@ func (c *Client) CheckThreatIntel(domain string) (*ThreatIntelCheck, error) {
 	return &out, nil
 }
 
+// Me is the response from GET /api/v1/me. Trimmed to what `auth
+// whoami` renders; key + authMethod fields available but we don't
+// surface them today.
+type Me struct {
+	User struct {
+		ID          string `json:"id"`
+		Email       string `json:"email"`
+		Tier        string `json:"tier"`
+		TierLabel   string `json:"tierLabel"`
+		DomainQuota int    `json:"domainQuota"`
+		IsAdmin     bool   `json:"isAdmin"`
+	} `json:"user"`
+	AuthMethod string `json:"authMethod"`
+}
+
+func (c *Client) Me() (*Me, error) {
+	var out Me
+	if err := c.get("/api/v1/me", &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
 func checkPath(tool, domain string) string {
 	return fmt.Sprintf("/api/v1/check/%s/%s",
 		url.PathEscape(strings.ToLower(tool)),
