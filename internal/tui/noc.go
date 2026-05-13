@@ -408,7 +408,7 @@ func (m NocModel) handleDetailKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 func (m NocModel) View() string {
 	if !m.loaded && m.err == nil {
-		return m.renderShell("\n  " + StyleDim.Render("loading…") + "\n")
+		return m.renderSplash()
 	}
 	if m.detailDomain != nil {
 		return m.renderShell(m.renderDetail())
@@ -427,6 +427,31 @@ func (m NocModel) View() string {
 	return out
 }
 
+// renderSplash is the boot screen. Branded panel + a tagline + a
+// loading note. Shows until the first nocSummaryMsg lands (~100-500ms
+// typical), then the main view takes over.
+func (m NocModel) renderSplash() string {
+	title := lipgloss.NewStyle().
+		Foreground(colAmber).
+		Bold(true).
+		Render("POSTVALE  ·  NOC")
+	tagline := StyleDim.Render("live operations console")
+	loading := StyleDim.Italic(true).Render("preparing live feed…")
+
+	box := lipgloss.NewStyle().
+		Border(lipgloss.DoubleBorder()).
+		BorderForeground(colAmber).
+		Padding(1, 6).
+		Render(title + "\n\n" + tagline)
+
+	body := box + "\n\n" + loading
+	if m.width == 0 || m.height == 0 {
+		return body
+	}
+	return lipgloss.Place(m.width, m.height,
+		lipgloss.Center, lipgloss.Center, body)
+}
+
 func (m NocModel) renderShell(body string) string {
 	header := m.renderHeader()
 	footer := m.renderFooter()
@@ -434,7 +459,13 @@ func (m NocModel) renderShell(body string) string {
 }
 
 func (m NocModel) renderHeader() string {
-	live := StyleOK.Render("● live")
+	// Pulse the live indicator on the second tick so the chrome looks
+	// alive even when no data has arrived. ○ on even seconds, ● on odd.
+	liveDot := "●"
+	if m.now.Second()%2 == 0 {
+		liveDot = "○"
+	}
+	live := StyleOK.Render(liveDot + " live")
 	if m.paused {
 		live = StyleWarn.Render("● paused")
 	}
@@ -778,6 +809,115 @@ func sparkline(feed []api.RecentScan, host string, n int) string {
 	return b.String()
 }
 
+// bigGradeArt - 5-row ASCII letter shapes for the worst-grade hero
+// pill in the detail view. Wide enough (9 cols) to read from across
+// a NOC monitor.
+var bigGradeArt = map[string][]string{
+	"A+": {
+		" █████  ╷ ",
+		"██   ██╶┼╴",
+		"███████ ╵ ",
+		"██   ██   ",
+		"██   ██   ",
+	},
+	"A": {
+		" █████  ",
+		"██   ██ ",
+		"███████ ",
+		"██   ██ ",
+		"██   ██ ",
+	},
+	"B": {
+		"██████  ",
+		"██   ██ ",
+		"██████  ",
+		"██   ██ ",
+		"██████  ",
+	},
+	"C": {
+		" ██████ ",
+		"██      ",
+		"██      ",
+		"██      ",
+		" ██████ ",
+	},
+	"D": {
+		"██████  ",
+		"██   ██ ",
+		"██   ██ ",
+		"██   ██ ",
+		"██████  ",
+	},
+	"F": {
+		"███████ ",
+		"██      ",
+		"█████   ",
+		"██      ",
+		"██      ",
+	},
+	"-": {
+		"        ",
+		"        ",
+		"███████ ",
+		"        ",
+		"        ",
+	},
+}
+
+func bigGradeLetter(g string) string {
+	art, ok := bigGradeArt[g]
+	if !ok {
+		art = bigGradeArt["-"]
+	}
+	style := GradeStyle(g).Bold(true)
+	lines := make([]string, len(art))
+	for i, line := range art {
+		lines[i] = style.Render(line)
+	}
+	return strings.Join(lines, "\n")
+}
+
+// activityHistogram buckets scans per hour for the last N hours and
+// renders the counts as a horizontal block-height bar strip. Empty
+// hours render as a dim middle dot so the timeline reads as "we
+// haven't seen activity here" rather than "this slot is empty
+// data."
+func activityHistogram(feed []api.RecentScan, host string, hours int, now time.Time) string {
+	counts := make([]int, hours)
+	for _, s := range feed {
+		if s.Host != host {
+			continue
+		}
+		t, err := time.Parse(time.RFC3339, s.RanAt)
+		if err != nil {
+			continue
+		}
+		delta := now.Sub(t)
+		h := int(delta.Hours())
+		if h < 0 || h >= hours {
+			continue
+		}
+		counts[hours-1-h]++
+	}
+	maxC := 1
+	for _, c := range counts {
+		if c > maxC {
+			maxC = c
+		}
+	}
+	blocks := []string{"▁", "▂", "▃", "▄", "▅", "▆", "▇", "█"}
+	var b strings.Builder
+	for _, c := range counts {
+		if c == 0 {
+			b.WriteString(StyleDim.Render("·"))
+			continue
+		}
+		idx := c * (len(blocks) - 1) / maxC
+		b.WriteString(StyleOK.Render(blocks[idx]))
+	}
+	return b.String()
+}
+
 // gradeBlock maps a letter grade to a Unicode partial-block character
 // of proportional height. Used by the sparkline + the detail view so
 // the visual is consistent.
@@ -958,26 +1098,18 @@ func (m NocModel) renderLegend() string {
 	return "  " + strings.Join(parts, "   ") + "   " + StyleDim.Render(bell)
 }
 
-// renderDetail draws the per-domain drill-in view. Triggered by Enter
-// on the cursor row; escapes back to the main view with esc. Shows
-// summary grade + sub-grades, the recent scan timeline for that host
-// (sparkline + list), and any action-queue items scoped to this
-// domain.
+// renderDetail draws the per-domain drill-in view. Hero strip at the
+// top has a chunky ASCII grade letter on the left + key facts on the
+// right. Below: sub-grade table beside an activity histogram, then
+// the chronological recent-scan list and any open action items.
 func (m NocModel) renderDetail() string {
 	d := *m.detailDomain
-	var b strings.Builder
 
 	hostPort := d.Host
 	if d.Port != 443 {
 		hostPort = fmt.Sprintf("%s:%d", d.Host, d.Port)
 	}
 
-	// Title strip.
-	title := StyleHeader.Render("DOMAIN · " + hostPort)
-	b.WriteString(title + "\n")
-	b.WriteString(StyleDim.Render(strings.Repeat("─", max(20, lipgloss.Width(title)))) + "\n\n")
-
-	// Worst grade + last-scanned at.
 	grade := d.LastWorstGrade
 	if grade == "" {
 		grade = "-"
@@ -986,15 +1118,38 @@ func (m NocModel) renderDetail() string {
 	if d.LastCheckedAt != nil {
 		last = formatAgo(m.now.Sub(parseTime(*d.LastCheckedAt))) + " ago"
 	}
-	b.WriteString(fmt.Sprintf("%s  %s   %s  %s\n\n",
-		StyleDim.Render("Worst grade:"),
-		GradeStyle(grade).Bold(true).Render(padRight(grade, 3)),
-		StyleDim.Render("Last scan:"),
-		StyleStrong.Render(last),
-	))
 
-	// Sub-grade table - one row per tool.
-	b.WriteString(StyleHeader.Render("Sub-grades") + "\n")
+	var out strings.Builder
+
+	// Title strip.
+	title := StyleHeader.Render("DOMAIN · " + hostPort)
+	out.WriteString(title + "\n")
+	out.WriteString(StyleDim.Render(strings.Repeat("─", max(40, lipgloss.Width(title)+20))) + "\n\n")
+
+	// Hero: huge ASCII grade letter on the left, key facts stacked on
+	// the right. Reads at a distance.
+	bigLetter := bigGradeLetter(grade)
+	cadence := fmt.Sprintf("every %dm", d.CadenceMinutes)
+	status := StyleOK.Render("active")
+	if d.Paused {
+		status = StyleWarn.Render("paused")
+	}
+	facts := []string{
+		StyleDim.Render("Worst grade: ") + GradeStyle(grade).Bold(true).Render(grade),
+		StyleDim.Render("Last scan:   ") + StyleStrong.Render(last),
+		StyleDim.Render("Cadence:     ") + StyleStrong.Render(cadence),
+		StyleDim.Render("Status:      ") + status,
+		"",
+	}
+	hero := lipgloss.JoinHorizontal(lipgloss.Top,
+		bigLetter,
+		"   ",
+		strings.Join(facts, "\n"),
+	)
+	out.WriteString(hero + "\n\n")
+
+	// Sub-grades on the left, activity histogram on the right. Two
+	// columns of independent height; lipgloss aligns them at the top.
 	tools := []struct {
 		key, label string
 	}{
@@ -1004,6 +1159,8 @@ func (m NocModel) renderDetail() string {
 		{"headers", "Headers"},
 		{"mtaSts", "MTA-STS"},
 	}
+	var subgrades strings.Builder
+	subgrades.WriteString(StyleHeader.Render("Sub-grades") + "\n")
 	for _, t := range tools {
 		g := ""
 		if d.LastGrades != nil {
@@ -1015,18 +1172,29 @@ func (m NocModel) renderDetail() string {
 		if g == "" {
 			g = "-"
 		}
-		b.WriteString(fmt.Sprintf("  %s  %s\n",
-			padRight(t.label, 10),
+		subgrades.WriteString(fmt.Sprintf("  %s  %s\n",
+			padRight(t.label, 9),
 			GradeStyle(g).Render(padRight(g, 3)),
 		))
 	}
-	b.WriteString("\n")
 
-	// Recent scan history for this host: sparkline strip + last-10
-	// chronological list.
-	b.WriteString(StyleHeader.Render("Recent scans") + "  ")
-	b.WriteString(sparkline(m.feed, d.Host, 16))
-	b.WriteString(StyleDim.Render("   (oldest → newest, this session)") + "\n")
+	var activity strings.Builder
+	activity.WriteString(StyleHeader.Render("Activity (last 12h)") + "\n")
+	activity.WriteString("  " + activityHistogram(m.feed, d.Host, 12, m.now) + "\n")
+	activity.WriteString("  " + StyleDim.Render("12h ago         now") + "\n\n")
+	activity.WriteString(StyleHeader.Render("Recent grade trend") + "\n")
+	activity.WriteString("  " + sparkline(m.feed, d.Host, 16) + "\n")
+	activity.WriteString("  " + StyleDim.Render("oldest          newest") + "\n")
+
+	twoCol := lipgloss.JoinHorizontal(lipgloss.Top,
+		subgrades.String(),
+		"      ",
+		activity.String(),
+	)
+	out.WriteString(twoCol + "\n\n")
+
+	// Recent scans list.
+	out.WriteString(StyleHeader.Render("Recent scans") + "\n")
 	var scans []api.RecentScan
 	for _, s := range m.feed {
 		if s.Host == d.Host {
@@ -1037,24 +1205,22 @@ func (m NocModel) renderDetail() string {
 		}
 	}
 	if len(scans) == 0 {
-		b.WriteString("  " + StyleDim.Render("no scans observed yet in this session - they'll appear here as they run") + "\n")
+		out.WriteString("  " + StyleDim.Render("no scans observed yet in this session - they will appear here as they run") + "\n")
 	} else {
 		for _, s := range scans {
 			g := s.WorstGrade
 			if g == "" {
 				g = "-"
 			}
-			b.WriteString(fmt.Sprintf("  %s  %s  %s\n",
+			out.WriteString(fmt.Sprintf("  %s  %s  %s\n",
 				StyleDim.Render(formatClock(s.RanAt)),
 				GradeStyle(g).Render(padRight(g, 3)),
 				StyleDim.Render(fmt.Sprintf("%dms", s.DurationMs)),
 			))
 		}
 	}
-	b.WriteString("\n")
 
-	// Action items scoped to this domain. Match by host substring on
-	// the queue item's Domain field (server stores "host:port").
+	// Open action items for this domain.
 	if m.summary != nil {
 		var items []api.ActionQueueItem
 		for _, it := range m.summary.ActionQueue {
@@ -1063,29 +1229,19 @@ func (m NocModel) renderDetail() string {
 			}
 		}
 		if len(items) > 0 {
-			b.WriteString(StyleHeader.Render("Open action items") + "\n")
+			out.WriteString("\n" + StyleHeader.Render("Open action items") + "\n")
 			for _, it := range items {
 				age := formatAgo(m.now.Sub(parseTime(it.DetectedAt)))
-				b.WriteString(fmt.Sprintf("  %s  %s  %s\n",
+				out.WriteString(fmt.Sprintf("  %s  %s  %s\n",
 					severityDot(it.Severity),
 					StyleStrong.Render(it.Message),
 					StyleDim.Render(age),
 				))
 			}
-			b.WriteString("\n")
 		}
 	}
 
-	// Domain plumbing info - cadence + paused state. Last line so the
-	// footer hint still lands in the operator's eye.
-	cadence := fmt.Sprintf("every %dm", d.CadenceMinutes)
-	paused := ""
-	if d.Paused {
-		paused = StyleWarn.Render("  · paused")
-	}
-	b.WriteString(StyleDim.Render(fmt.Sprintf("Scan cadence: %s%s", cadence, paused)) + "\n")
-
-	return b.String()
+	return out.String()
 }
 
 func (m NocModel) renderSearchBar() string {
