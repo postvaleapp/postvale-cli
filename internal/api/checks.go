@@ -566,6 +566,71 @@ func (c *Client) ListAlerts() ([]AlertEndpoint, error) {
 	return out.Data, nil
 }
 
+// ---- NOC dashboard ----
+
+type DashboardSummary struct {
+	MonitoredCount      int               `json:"monitoredCount"`
+	GradeDistribution   map[string]int    `json:"gradeDistribution"`
+	BlocklistHits       int               `json:"blocklistHits"`
+	RecentAlertCount24h int               `json:"recentAlertCount24h"`
+	ActionQueue         []ActionQueueItem `json:"actionQueue"`
+	GeneratedAt         string            `json:"generatedAt"`
+}
+
+type ActionQueueItem struct {
+	Severity   string `json:"severity"`
+	Kind       string `json:"kind"`
+	Domain     string `json:"domain"`
+	Message    string `json:"message"`
+	DetectedAt string `json:"detectedAt"`
+}
+
+func (c *Client) DashboardSummary() (*DashboardSummary, error) {
+	var out DashboardSummary
+	if err := c.get("/api/v1/dashboard/summary", &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+type RecentScan struct {
+	ID                string            `json:"id"`
+	MonitoredDomainID string            `json:"monitoredDomainId"`
+	Host              string            `json:"host"`
+	Port              int               `json:"port"`
+	WorstGrade        string            `json:"worstGrade"`
+	Grades            map[string]string `json:"grades"`
+	RanAt             string            `json:"ranAt"`
+	DurationMs        int               `json:"durationMs"`
+}
+
+type recentScansResp struct {
+	Scans  []RecentScan `json:"scans"`
+	Cursor *string      `json:"cursor"`
+}
+
+// RecentScans returns the latest scans across the caller's domain set.
+// since is an ISO timestamp; when non-empty, only scans with ranAt
+// strictly after it are returned (cursor-based tail).
+func (c *Client) RecentScans(since string, limit int) ([]RecentScan, error) {
+	path := "/api/v1/scans/recent"
+	q := url.Values{}
+	if limit > 0 {
+		q.Set("limit", fmt.Sprintf("%d", limit))
+	}
+	if since != "" {
+		q.Set("since", since)
+	}
+	if encoded := q.Encode(); encoded != "" {
+		path += "?" + encoded
+	}
+	var out recentScansResp
+	if err := c.get(path, &out); err != nil {
+		return nil, err
+	}
+	return out.Scans, nil
+}
+
 func checkPath(tool, domain string) string {
 	return fmt.Sprintf("/api/v1/check/%s/%s",
 		url.PathEscape(strings.ToLower(tool)),

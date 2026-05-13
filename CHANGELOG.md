@@ -23,6 +23,10 @@ versioning follows [SemVer](https://semver.org/).
   - `ci` subcommands (`ci check`, `ci tls`, `ci dmarc`, `ci dns`,
     `ci headers`, `ci dnssec`, `ci spoof`, `ci takeover`) which
     force --quiet, --no-color, --exit-on-fail by default
+- `noc`: live operations console. 3-pane layout (domains table,
+  action queue, scan tail) + top stats strip. Polls /api/v1/
+  dashboard/summary every 30s and /api/v1/scans/recent every 6s
+  with cursor-based incremental fetch. Pause/resume + refresh.
 - Global flags: `--json`, `--quiet`, `--no-color`, `--exit-on-fail`,
   `--timeout`, `--api`, `--token`, `--config`
 - `POSTVALE_API` + `POSTVALE_TOKEN` env-var fallbacks
