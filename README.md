@@ -113,22 +113,11 @@ dashboard for your monitored domains, recent alerts, and one-shot
 checks. Press `?` for keyboard shortcuts. Pro+ feature - free tier
 opens in read-only "demo data" mode.
 
-## Self-hosted
-
-If you run a private Postvale instance:
-
-```sh
-postvale --api https://postvale.acme.internal check example.com
-```
-
-Set `POSTVALE_API` in your environment to make it permanent.
-
 ## Privacy
 
 The CLI doesn't ship telemetry. The only network calls it makes are
-to the API endpoint (`postvale.app` by default, or `--api`). No
-phone-home, no anonymous analytics, no crash reporting unless you
-opt in via `postvale auth login --share-crashes`.
+to `postvale.app`. No phone-home, no anonymous analytics, no crash
+reporting unless you opt in via `postvale auth login --share-crashes`.
 
 Tokens are stored in your OS keychain (macOS Keychain, Windows
 Credential Manager, libsecret on Linux). On systems without a
