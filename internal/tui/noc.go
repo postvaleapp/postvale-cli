@@ -676,14 +676,26 @@ func (m NocModel) renderFooter() string {
 		errLine = StyleFail.Render("! "+m.err.Error()) + "\n"
 	}
 	if m.detailDomain != nil {
-		scrollPct := int(m.detailViewport.ScrollPercent() * 100)
-		scrollHint := ""
-		if !m.detailViewport.AtTop() || !m.detailViewport.AtBottom() {
-			scrollHint = fmt.Sprintf(" · %d%%", scrollPct)
+		parts := []string{}
+		// Up-arrow indicator means there's content above the visible
+		// window; down-arrow means there's more below. Surfacing both
+		// is what lets a first-time operator know to scroll at all.
+		if !m.detailViewport.AtTop() {
+			parts = append(parts, StyleHeader.Render("▲")+" more above")
 		}
-		return errLine + StyleDim.Render(
-			"↑/↓ scroll"+scrollHint+" · b open in browser · esc back · r refresh · q quit",
+		if !m.detailViewport.AtBottom() {
+			scrollPct := int(m.detailViewport.ScrollPercent() * 100)
+			parts = append(parts, fmt.Sprintf("%d%%", scrollPct))
+			parts = append(parts, StyleHeader.Render("▼")+" more below")
+		}
+		parts = append(parts,
+			"↑↓ / mouse wheel",
+			"b open in browser",
+			"esc back",
+			"r refresh",
+			"q quit",
 		)
+		return errLine + StyleDim.Render(strings.Join(parts, " · "))
 	}
 	return errLine + m.help.View(m.keys)
 }
