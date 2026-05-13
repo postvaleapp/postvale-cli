@@ -267,14 +267,18 @@ func (m Model) renderShell(body string) string {
 }
 
 func (m Model) renderHeader() string {
-	left := StyleHeader.Render("POSTVALE")
+	// Page label, not the brand mark. The shell's sidebar already
+	// shows POSTVALE + identity; repeating either here was visible
+	// redundancy.
+	left := StyleHeader.Render("DASHBOARD")
 	right := ""
-	if m.me != nil {
-		right = StyleDim.Render(fmt.Sprintf(
-			"%s · %s",
-			m.me.User.Email,
-			m.me.User.TierLabel,
-		))
+	if !m.lastSync.IsZero() {
+		right = StyleDim.Render(
+			fmt.Sprintf("%d domains  ·  synced %s ago",
+				len(m.domains),
+				formatAgo(time.Since(m.lastSync)),
+			),
+		)
 	}
 	pad := ""
 	if m.width > 0 {

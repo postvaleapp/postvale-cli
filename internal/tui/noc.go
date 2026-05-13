@@ -618,7 +618,8 @@ func (m NocModel) renderHeader() string {
 	if !m.lastSync.IsZero() {
 		syncedAgo = formatAgo(m.now.Sub(m.lastSync)) + " ago"
 	}
-	left := StyleHeader.Render("POSTVALE · NOC")
+	// Page label, not the brand mark. Shell sidebar carries POSTVALE.
+	left := StyleHeader.Render("NOC CONSOLE")
 	latency := m.renderLatencyBadge()
 	right := fmt.Sprintf("%s  %s  %s  %s",
 		latency,
