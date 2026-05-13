@@ -62,6 +62,16 @@ and --exit-on-fail to gate deploys on posture grades.`,
 	root.AddCommand(newTLSCommand())
 	root.AddCommand(newDMARCCommand())
 	root.AddCommand(newDNSCommand())
+	root.AddCommand(newHeadersCommand())
+	root.AddCommand(newMtaStsCommand())
+	root.AddCommand(newBimiCommand())
+	root.AddCommand(newDnssecCommand())
+	root.AddCommand(newCaaCommand())
+	root.AddCommand(newSubdomainsCommand())
+	root.AddCommand(newTakeoverCommand())
+	root.AddCommand(newSpoofCommand())
+	root.AddCommand(newSpfCommand())
+	root.AddCommand(newReputationCommand())
 	root.AddCommand(newScamCommand())
 
 	return root

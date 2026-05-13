@@ -324,3 +324,317 @@ func ShouldFail(grade string) bool {
 		return true
 	}
 }
+
+func RenderHeaders(w io.Writer, r *api.HeadersCheck) {
+	fmt.Fprintf(w, "%s    %s\n",
+		StyleStrong.Render(r.Host),
+		GradeStyle(string(r.Grade)).Render(string(r.Grade)),
+	)
+	if r.StatusCode > 0 {
+		fmt.Fprintln(w, StyleDim.Render(fmt.Sprintf("  %s -> %d", r.URL, r.StatusCode)))
+	}
+
+	fmt.Fprintln(w)
+	fmt.Fprintln(w, StyleHeader.Render("HEADERS"))
+	headerRow(w, "HSTS", r.HSTS != nil && r.HSTS.Present, "")
+	headerRow(w, "CSP", r.CSP != nil && r.CSP.Present, evalOf(r.CSP))
+	headerRow(w, "X-Frame-Options", r.XFrameOptions != nil && r.XFrameOptions.Present, "")
+	headerRow(w, "X-Content-Type", r.XContentType != nil && r.XContentType.Present, "")
+	headerRow(w, "Referrer-Policy", r.ReferrerPolicy != nil && r.ReferrerPolicy.Present, "")
+	headerRow(w, "Permissions-Policy", r.PermissionsPol != nil && r.PermissionsPol.Present, "")
+	headerRow(w, "COOP", r.COOP != nil && r.COOP.Present, "")
+	headerRow(w, "COEP", r.COEP != nil && r.COEP.Present, "")
+	headerRow(w, "CORP", r.CORP != nil && r.CORP.Present, "")
+
+	if r.ServerDisclose != "" {
+		fmt.Fprintln(w)
+		fmt.Fprintln(w, StyleDim.Render(fmt.Sprintf("  Server disclosure: %s", r.ServerDisclose)))
+	}
+	renderRecs(w, r.Recommendations)
+}
+
+func headerRow(w io.Writer, name string, present bool, note string) {
+	mark := StyleFail.Render("missing")
+	if present {
+		mark = StyleOK.Render("present")
+		if note != "" && note != "good" {
+			mark = StyleWarn.Render(note)
+		}
+	}
+	fmt.Fprintf(w, "  %s  %s\n", StyleLabel.Width(20).Render(name), mark)
+}
+
+func evalOf(h *api.HeaderInfo) string {
+	if h == nil {
+		return ""
+	}
+	return h.Eval
+}
+
+func RenderMtaSts(w io.Writer, r *api.MtaStsCheck) {
+	fmt.Fprintf(w, "%s    %s\n",
+		StyleStrong.Render(r.Host),
+		GradeStyle(string(r.Grade)).Render(string(r.Grade)),
+	)
+	fmt.Fprintln(w)
+	fmt.Fprintln(w, StyleHeader.Render("MTA-STS"))
+	row(w, "DNS record", boolLabel(r.DNSRecord.Found))
+	if r.PolicyFile.Fetched {
+		row(w, "Mode", string(r.PolicyFile.Mode))
+		if len(r.PolicyFile.MX) > 0 {
+			row(w, "MX", strings.Join(r.PolicyFile.MX, ", "))
+		}
+		row(w, "max-age", fmt.Sprintf("%d", r.PolicyFile.MaxAge))
+	} else {
+		fmt.Fprintln(w, "  "+StyleWarn.Render("policy file not fetched"))
+	}
+
+	fmt.Fprintln(w)
+	fmt.Fprintln(w, StyleHeader.Render("TLS-RPT"))
+	row(w, "Published", boolLabel(r.TlsRpt.Found))
+	if len(r.TlsRpt.RUA) > 0 {
+		row(w, "rua", strings.Join(r.TlsRpt.RUA, ", "))
+	}
+
+	renderRecs(w, r.Recommendations)
+}
+
+func RenderBimi(w io.Writer, r *api.BimiCheck) {
+	fmt.Fprintf(w, "%s    %s\n",
+		StyleStrong.Render(r.Host),
+		GradeStyle(string(r.Grade)).Render(string(r.Grade)),
+	)
+	fmt.Fprintln(w)
+	fmt.Fprintln(w, StyleHeader.Render("BIMI"))
+	row(w, "Record", boolLabel(r.Record.Found))
+	if r.Record.LogoURL != "" {
+		row(w, "Logo", r.Record.LogoURL)
+	}
+	if r.Record.VmcURL != "" {
+		row(w, "VMC", r.Record.VmcURL)
+	}
+	if r.Logo.Fetched {
+		row(w, "Logo fetch", fmt.Sprintf("HTTP %d", r.Logo.Status))
+	}
+	renderRecs(w, r.Recommendations)
+}
+
+func RenderDnssec(w io.Writer, r *api.DnssecCheck) {
+	tone := StyleDim
+	switch r.Status {
+	case "secure":
+		tone = StyleOK
+	case "insecure":
+		tone = StyleWarn
+	case "bogus":
+		tone = StyleFail
+	}
+	fmt.Fprintf(w, "%s    %s\n",
+		StyleStrong.Render(r.Host),
+		tone.Bold(true).Render(strings.ToUpper(r.Status)),
+	)
+	fmt.Fprintln(w)
+	fmt.Fprintln(w, "  "+r.Headline)
+
+	fmt.Fprintln(w)
+	fmt.Fprintln(w, StyleHeader.Render("SIGNALS"))
+	row(w, "AD flag", boolLabel(r.Signals.ADFlag))
+	row(w, "DNSKEY at apex", boolLabel(r.Signals.DnskeyPresent))
+	row(w, "DS at parent", boolLabel(r.Signals.DSAtParent))
+
+	renderRecs(w, r.Recommendations)
+}
+
+func RenderCaa(w io.Writer, r *api.CaaCheck) {
+	tone := StyleDim
+	switch r.Verdict {
+	case "secure":
+		tone = StyleOK
+	case "partial":
+		tone = StyleWarn
+	case "missing":
+		tone = StyleFail
+	}
+	fmt.Fprintf(w, "%s    %s\n",
+		StyleStrong.Render(r.Host),
+		tone.Bold(true).Render(strings.ToUpper(r.Verdict)),
+	)
+	fmt.Fprintln(w)
+	fmt.Fprintln(w, "  "+r.Headline)
+
+	if len(r.AllowedIssueCAs) > 0 {
+		fmt.Fprintln(w)
+		fmt.Fprintln(w, StyleHeader.Render("ALLOWED ISSUERS"))
+		for _, ca := range r.AllowedIssueCAs {
+			fmt.Fprintf(w, "  %s %s\n", StyleOK.Render("·"), ca)
+		}
+	}
+	if len(r.AllowedWildcardCAs) > 0 {
+		fmt.Fprintln(w)
+		fmt.Fprintln(w, StyleHeader.Render("ALLOWED WILDCARD"))
+		for _, ca := range r.AllowedWildcardCAs {
+			fmt.Fprintf(w, "  %s %s\n", StyleOK.Render("·"), ca)
+		}
+	}
+	if len(r.IodefEndpoints) > 0 {
+		fmt.Fprintln(w)
+		fmt.Fprintln(w, StyleHeader.Render("REPORTING"))
+		for _, e := range r.IodefEndpoints {
+			fmt.Fprintf(w, "  %s %s\n", StyleOK.Render("·"), e)
+		}
+	}
+	renderRecs(w, r.Recommendations)
+}
+
+func RenderSubdomains(w io.Writer, r *api.SubdomainsCheck) {
+	fmt.Fprintf(w, "%s    %s\n",
+		StyleStrong.Render(r.Host),
+		StyleHeader.Render(fmt.Sprintf("%d subdomains", r.Count)),
+	)
+	fmt.Fprintln(w)
+	max := 50
+	if len(r.Subdomains) < max {
+		max = len(r.Subdomains)
+	}
+	for i := 0; i < max; i++ {
+		s := r.Subdomains[i]
+		mark := StyleDim.Render("·")
+		if s.Resolves {
+			mark = StyleOK.Render("·")
+		}
+		fmt.Fprintf(w, "  %s %s\n", mark, s.Name)
+	}
+	if len(r.Subdomains) > max {
+		fmt.Fprintln(w, StyleDim.Render(fmt.Sprintf("  ...and %d more (use --json for the full list)", len(r.Subdomains)-max)))
+	}
+}
+
+func RenderTakeover(w io.Writer, r *api.TakeoverCheck) {
+	tone := StyleDim
+	switch r.Verdict {
+	case "vulnerable":
+		tone = StyleFail
+	case "suspicious":
+		tone = StyleWarn
+	case "safe":
+		tone = StyleOK
+	}
+	fmt.Fprintf(w, "%s    %s\n",
+		StyleStrong.Render(r.Host),
+		tone.Bold(true).Render(strings.ToUpper(r.Verdict)),
+	)
+	fmt.Fprintln(w)
+	fmt.Fprintln(w, "  "+r.Headline)
+
+	if len(r.CnameChain) > 0 {
+		fmt.Fprintln(w)
+		fmt.Fprintln(w, StyleHeader.Render(fmt.Sprintf("CNAME CHAIN (%d hops)", len(r.CnameChain))))
+		fmt.Fprintf(w, "  %s\n", r.Host)
+		for i, hop := range r.CnameChain {
+			fmt.Fprintf(w, "  %s %s\n", StyleDim.Render(fmt.Sprintf("%d.", i+1)), hop)
+		}
+		if len(r.FinalIPs) > 0 {
+			fmt.Fprintln(w, StyleDim.Render("  -> "+strings.Join(r.FinalIPs, ", ")))
+		} else {
+			fmt.Fprintln(w, "  "+StyleWarn.Render("no final A record (chain dangles)"))
+		}
+	}
+
+	if len(r.Fingerprints) > 0 {
+		fmt.Fprintln(w)
+		fmt.Fprintln(w, StyleHeader.Render("MATCHES"))
+		for _, fp := range r.Fingerprints {
+			fmt.Fprintf(w, "  %s %s (%s confidence)\n",
+				StyleFail.Render("·"),
+				fp.ServiceName,
+				fp.Confidence,
+			)
+		}
+	}
+	renderRecs(w, r.Recommendations)
+}
+
+func RenderSpoofability(w io.Writer, r *api.SpoofabilityCheck) {
+	tone := StyleDim
+	switch r.Verdict {
+	case "no":
+		tone = StyleOK
+	case "maybe":
+		tone = StyleWarn
+	case "yes":
+		tone = StyleFail
+	}
+	fmt.Fprintf(w, "%s    %s\n",
+		StyleStrong.Render(r.Host),
+		tone.Bold(true).Render(strings.ToUpper(r.Verdict)),
+	)
+	fmt.Fprintln(w)
+	fmt.Fprintln(w, "  "+r.Headline)
+	renderRecs(w, r.Recommendations)
+}
+
+func RenderSpfFlatten(w io.Writer, r *api.SpfFlattenCheck) {
+	fmt.Fprintln(w, StyleStrong.Render(r.Host))
+	fmt.Fprintln(w)
+	fmt.Fprintln(w, StyleHeader.Render("ORIGINAL"))
+	if r.Original.Record != "" {
+		fmt.Fprintln(w, "  "+StyleDim.Render(r.Original.Record))
+		row(w, "DNS lookups", fmt.Sprintf("%d", r.Original.LookupCount))
+	} else {
+		fmt.Fprintln(w, "  "+StyleWarn.Render("no SPF record at apex"))
+	}
+
+	fmt.Fprintln(w)
+	fmt.Fprintln(w, StyleHeader.Render("FLATTENED"))
+	if r.Flattened.Record != "" {
+		fmt.Fprintln(w, "  "+r.Flattened.Record)
+		row(w, "IPs", fmt.Sprintf("%d", r.Flattened.IPCount))
+		row(w, "Bytes", fmt.Sprintf("%d", r.Flattened.Bytes))
+	}
+	renderRecs(w, r.Recommendations)
+}
+
+func RenderThreatIntel(w io.Writer, r *api.ThreatIntelCheck) {
+	tone := StyleOK
+	verdict := "CLEAN"
+	if r.AnyFlagged {
+		tone = StyleFail
+		verdict = "FLAGGED"
+	}
+	fmt.Fprintf(w, "%s    %s\n",
+		StyleStrong.Render(r.Host),
+		tone.Bold(true).Render(verdict),
+	)
+	fmt.Fprintln(w)
+	fmt.Fprintln(w, StyleHeader.Render("FEEDS"))
+
+	if r.URLhaus != nil {
+		feedRow(w, "malware (URL hosting)", r.URLhaus.Listed, "")
+	}
+	if r.Threatfox != nil {
+		extra := r.Threatfox.MalwareFamily
+		feedRow(w, "active threat IOC", r.Threatfox.Listed, extra)
+	}
+	if r.Phishtank != nil {
+		feedRow(w, "phishing", r.Phishtank.Listed, "")
+	}
+	if r.DomainAge != nil {
+		if r.DomainAge.NewlyRegistered {
+			row(w, "Domain age", StyleFail.Render(fmt.Sprintf("%d days (newly registered)", r.DomainAge.AgeDays)))
+		} else if r.DomainAge.AgeDays > 0 {
+			row(w, "Domain age", StyleOK.Render(fmt.Sprintf("%d days", r.DomainAge.AgeDays)))
+		}
+	}
+}
+
+func feedRow(w io.Writer, label string, listed bool, extra string) {
+	if listed {
+		v := StyleFail.Render("listed")
+		if extra != "" {
+			v = StyleFail.Render(fmt.Sprintf("listed (%s)", extra))
+		}
+		fmt.Fprintf(w, "  %s  %s\n", StyleLabel.Width(22).Render(label), v)
+	} else {
+		fmt.Fprintf(w, "  %s  %s\n", StyleLabel.Width(22).Render(label), StyleOK.Render("clean"))
+	}
+}

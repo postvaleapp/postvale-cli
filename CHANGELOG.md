@@ -8,7 +8,9 @@ versioning follows [SemVer](https://semver.org/).
 
 ### Added
 - Initial scaffold: cobra command tree, Lipgloss output, base API client
-- Phase 1 commands: `check`, `tls`, `dmarc`, `dns`, `scam`, `version`
+- Phase 1 commands: `check`, `tls`, `dmarc`, `dns`, `headers`,
+  `mta-sts`, `bimi`, `dnssec`, `caa`, `subdomains`, `takeover`,
+  `spoof`, `spf flatten`, `reputation`, `scam`, `version`
 - Global flags: `--json`, `--quiet`, `--no-color`, `--exit-on-fail`,
   `--timeout`, `--api`, `--token`, `--config`
 - `POSTVALE_API` + `POSTVALE_TOKEN` env-var fallbacks

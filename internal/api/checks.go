@@ -144,6 +144,193 @@ type BlacklistListing struct {
 	Severity string `json:"severity"`
 }
 
+type HeadersCheck struct {
+	CheckSummary
+	URL             string      `json:"url,omitempty"`
+	StatusCode      int         `json:"statusCode,omitempty"`
+	HSTS            *HSTSInfo   `json:"hsts,omitempty"`
+	CSP             *HeaderInfo `json:"csp,omitempty"`
+	XFrameOptions   *HeaderInfo `json:"xFrameOptions,omitempty"`
+	XContentType    *HeaderInfo `json:"xContentType,omitempty"`
+	ReferrerPolicy  *HeaderInfo `json:"referrerPolicy,omitempty"`
+	PermissionsPol  *HeaderInfo `json:"permissionsPolicy,omitempty"`
+	COOP            *HeaderInfo `json:"coop,omitempty"`
+	COEP            *HeaderInfo `json:"coep,omitempty"`
+	CORP            *HeaderInfo `json:"corp,omitempty"`
+	ServerDisclose  string      `json:"serverDisclosure,omitempty"`
+	Warnings        []string    `json:"warnings"`
+	Recommendations []string    `json:"recommendations"`
+}
+
+type HeaderInfo struct {
+	Present bool   `json:"present"`
+	Raw     string `json:"raw,omitempty"`
+	Eval    string `json:"eval,omitempty"`
+}
+
+type MtaStsCheck struct {
+	CheckSummary
+	Apex      string `json:"apex"`
+	DNSRecord struct {
+		Found   bool   `json:"found"`
+		Version string `json:"version,omitempty"`
+		ID      string `json:"id,omitempty"`
+	} `json:"dnsRecord"`
+	PolicyFile struct {
+		Fetched bool     `json:"fetched"`
+		Mode    string   `json:"mode,omitempty"`
+		MX      []string `json:"mx"`
+		MaxAge  int      `json:"maxAge,omitempty"`
+	} `json:"policyFile"`
+	TlsRpt struct {
+		Found bool     `json:"found"`
+		RUA   []string `json:"rua"`
+	} `json:"tlsRpt"`
+	Warnings        []string `json:"warnings"`
+	Recommendations []string `json:"recommendations"`
+}
+
+type BimiCheck struct {
+	CheckSummary
+	Apex   string `json:"apex"`
+	Record struct {
+		Found   bool   `json:"found"`
+		LogoURL string `json:"logoUrl,omitempty"`
+		VmcURL  string `json:"vmcUrl,omitempty"`
+	} `json:"record"`
+	Logo struct {
+		Fetched bool `json:"fetched"`
+		Status  int  `json:"status,omitempty"`
+	} `json:"logo"`
+	VMC struct {
+		Fetched bool `json:"fetched"`
+		Status  int  `json:"status,omitempty"`
+	} `json:"vmc"`
+	Warnings        []string `json:"warnings"`
+	Recommendations []string `json:"recommendations"`
+}
+
+// Verdicts: secure | insecure | bogus | indeterminate
+type DnssecCheck struct {
+	Host     string `json:"host"`
+	Status   string `json:"status"`
+	Headline string `json:"headline"`
+	Signals  struct {
+		ADFlag        bool `json:"adFlag"`
+		DnskeyPresent bool `json:"dnskeyPresent"`
+		DnskeyCount   int  `json:"dnskeyCount"`
+		DSAtParent    bool `json:"dsAtParent"`
+		DSCount       int  `json:"dsCount"`
+	} `json:"signals"`
+	Recommendations []string `json:"recommendations"`
+	CheckedAt       string   `json:"checkedAt"`
+	DurationMs      int      `json:"durationMs"`
+}
+
+// Verdict: secure | partial | missing
+type CaaCheck struct {
+	Host               string         `json:"host"`
+	Verdict            string         `json:"verdict"`
+	Headline           string         `json:"headline"`
+	Records            []CaaRecordRow `json:"records"`
+	AllowedIssueCAs    []string       `json:"allowedIssueCAs"`
+	AllowedWildcardCAs []string       `json:"allowedWildcardCAs"`
+	IodefEndpoints     []string       `json:"iodefEndpoints"`
+	Recommendations    []string       `json:"recommendations"`
+	CheckedAt          string         `json:"checkedAt"`
+	DurationMs         int            `json:"durationMs"`
+}
+
+type CaaRecordRow struct {
+	Critical int    `json:"critical"`
+	Tag      string `json:"tag"`
+	Value    string `json:"value"`
+}
+
+type SubdomainsCheck struct {
+	Host       string           `json:"host"`
+	Count      int              `json:"count"`
+	Subdomains []SubdomainEntry `json:"subdomains"`
+	CheckedAt  string           `json:"checkedAt"`
+	DurationMs int              `json:"durationMs"`
+}
+
+type SubdomainEntry struct {
+	Name      string `json:"name"`
+	FirstSeen string `json:"firstSeen,omitempty"`
+	LastSeen  string `json:"lastSeen,omitempty"`
+	Resolves  bool   `json:"resolves,omitempty"`
+}
+
+// Verdict: vulnerable | suspicious | safe | no-cname | error
+type TakeoverCheck struct {
+	Host            string                `json:"host"`
+	Verdict         string                `json:"verdict"`
+	Headline        string                `json:"headline"`
+	CnameChain      []string              `json:"cnameChain"`
+	FinalIPs        []string              `json:"finalIPs"`
+	Fingerprints    []TakeoverFingerprint `json:"fingerprints"`
+	Recommendations []string              `json:"recommendations"`
+	CheckedAt       string                `json:"checkedAt"`
+	DurationMs      int                   `json:"durationMs"`
+}
+
+type TakeoverFingerprint struct {
+	Service     string `json:"service"`
+	ServiceName string `json:"serviceName"`
+	CnameTarget string `json:"cnameTarget"`
+	Confidence  string `json:"confidence"`
+}
+
+// Verdict: yes | maybe | no
+type SpoofabilityCheck struct {
+	Host            string   `json:"host"`
+	Verdict         string   `json:"verdict"`
+	Headline        string   `json:"headline"`
+	Recommendations []string `json:"recommendations"`
+	CheckedAt       string   `json:"checkedAt"`
+	DurationMs      int      `json:"durationMs"`
+}
+
+type SpfFlattenCheck struct {
+	Host     string `json:"host"`
+	Original struct {
+		Record      string `json:"record"`
+		LookupCount int    `json:"lookupCount"`
+	} `json:"original"`
+	Flattened struct {
+		Record   string   `json:"record"`
+		Includes []string `json:"resolvedIncludes"`
+		IPCount  int      `json:"ipCount"`
+		Bytes    int      `json:"bytes"`
+	} `json:"flattened"`
+	Warnings        []string `json:"warnings"`
+	Recommendations []string `json:"recommendations"`
+	CheckedAt       string   `json:"checkedAt"`
+	DurationMs      int      `json:"durationMs"`
+}
+
+type ThreatIntelCheck struct {
+	Host       string `json:"host"`
+	AnyFlagged bool   `json:"anyFlagged"`
+	URLhaus    *struct {
+		Listed   bool `json:"listed"`
+		URLCount int  `json:"urlCount,omitempty"`
+	} `json:"urlhaus,omitempty"`
+	Threatfox *struct {
+		Listed        bool   `json:"listed"`
+		MalwareFamily string `json:"malwareFamily,omitempty"`
+	} `json:"threatfox,omitempty"`
+	Phishtank *struct {
+		Listed bool `json:"listed"`
+	} `json:"phishtank,omitempty"`
+	DomainAge *struct {
+		AgeDays         int    `json:"ageDays,omitempty"`
+		NewlyRegistered bool   `json:"newlyRegistered"`
+		RegisteredAt    string `json:"registeredAt,omitempty"`
+	} `json:"domainAge,omitempty"`
+}
+
 type ScamCheckRequest struct {
 	EmailRaw string `json:"emailRaw"`
 }
@@ -194,6 +381,86 @@ func (c *Client) CheckDNS(domain string) (*DNSCheck, error) {
 func (c *Client) ScamCheck(emailRaw string) (*ScamCheckResult, error) {
 	var out ScamCheckResult
 	if err := c.post("/api/v1/triage", &ScamCheckRequest{EmailRaw: emailRaw}, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+func (c *Client) CheckHeaders(domain string) (*HeadersCheck, error) {
+	var out HeadersCheck
+	if err := c.get(checkPath("headers", domain), &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+func (c *Client) CheckMtaSts(domain string) (*MtaStsCheck, error) {
+	var out MtaStsCheck
+	if err := c.get(checkPath("mta-sts", domain), &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+func (c *Client) CheckBimi(domain string) (*BimiCheck, error) {
+	var out BimiCheck
+	if err := c.get(checkPath("bimi", domain), &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+func (c *Client) CheckDnssec(domain string) (*DnssecCheck, error) {
+	var out DnssecCheck
+	if err := c.get(checkPath("dnssec", domain), &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+func (c *Client) CheckCaa(domain string) (*CaaCheck, error) {
+	var out CaaCheck
+	if err := c.get(checkPath("caa", domain), &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+func (c *Client) CheckSubdomains(domain string) (*SubdomainsCheck, error) {
+	var out SubdomainsCheck
+	if err := c.get(checkPath("subdomains", domain), &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+func (c *Client) CheckTakeover(domain string) (*TakeoverCheck, error) {
+	var out TakeoverCheck
+	if err := c.get(checkPath("takeover", domain), &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+func (c *Client) CheckSpoofability(domain string) (*SpoofabilityCheck, error) {
+	var out SpoofabilityCheck
+	if err := c.get(checkPath("spoofability", domain), &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+func (c *Client) CheckSpfFlatten(domain string) (*SpfFlattenCheck, error) {
+	var out SpfFlattenCheck
+	if err := c.get(checkPath("spf-flatten", domain), &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+func (c *Client) CheckThreatIntel(domain string) (*ThreatIntelCheck, error) {
+	var out ThreatIntelCheck
+	if err := c.get(checkPath("threat-intel", domain), &out); err != nil {
 		return nil, err
 	}
 	return &out, nil
