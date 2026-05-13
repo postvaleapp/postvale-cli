@@ -489,6 +489,83 @@ func (c *Client) Me() (*Me, error) {
 	return &out, nil
 }
 
+// ---- watch (monitored domains) ----
+
+type MonitoredDomain struct {
+	ID             string  `json:"id"`
+	Host           string  `json:"host"`
+	Port           int     `json:"port"`
+	Label          *string `json:"label,omitempty"`
+	CadenceMinutes int     `json:"cadenceMinutes"`
+	Paused         bool    `json:"paused"`
+	LastCheckedAt  *string `json:"lastCheckedAt,omitempty"`
+	LastWorstGrade string  `json:"lastWorstGrade,omitempty"`
+	CreatedAt      string  `json:"createdAt"`
+}
+
+type domainsListResp struct {
+	Data  []MonitoredDomain `json:"data"`
+	Count int               `json:"count"`
+}
+
+func (c *Client) ListDomains() ([]MonitoredDomain, error) {
+	var out domainsListResp
+	if err := c.get("/api/v1/domains", &out); err != nil {
+		return nil, err
+	}
+	return out.Data, nil
+}
+
+type AddDomainRequest struct {
+	Host           string `json:"host"`
+	Port           int    `json:"port,omitempty"`
+	Label          string `json:"label,omitempty"`
+	CadenceMinutes int    `json:"cadenceMinutes,omitempty"`
+}
+
+type addDomainResp struct {
+	Domain MonitoredDomain `json:"domain"`
+}
+
+func (c *Client) AddDomain(req *AddDomainRequest) (*MonitoredDomain, error) {
+	var out addDomainResp
+	if err := c.post("/api/v1/domains", req, &out); err != nil {
+		return nil, err
+	}
+	return &out.Domain, nil
+}
+
+func (c *Client) DeleteDomain(id string) error {
+	return c.do("DELETE", "/api/v1/domains/"+url.PathEscape(id), nil, nil)
+}
+
+// ---- alerts ----
+
+type AlertEndpoint struct {
+	ID              string  `json:"id"`
+	Kind            string  `json:"kind"`
+	Label           string  `json:"label"`
+	URL             string  `json:"url,omitempty"`
+	EmailTo         string  `json:"emailTo,omitempty"`
+	Enabled         bool    `json:"enabled"`
+	LastFiredAt     *string `json:"lastFiredAt,omitempty"`
+	LastFiredStatus *string `json:"lastFiredStatus,omitempty"`
+	CreatedAt       string  `json:"createdAt"`
+}
+
+type alertsResp struct {
+	Data  []AlertEndpoint `json:"data"`
+	Count int             `json:"count"`
+}
+
+func (c *Client) ListAlerts() ([]AlertEndpoint, error) {
+	var out alertsResp
+	if err := c.get("/api/v1/alerts", &out); err != nil {
+		return nil, err
+	}
+	return out.Data, nil
+}
+
 func checkPath(tool, domain string) string {
 	return fmt.Sprintf("/api/v1/check/%s/%s",
 		url.PathEscape(strings.ToLower(tool)),

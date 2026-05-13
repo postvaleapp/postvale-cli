@@ -74,6 +74,9 @@ and --exit-on-fail to gate deploys on posture grades.`,
 	root.AddCommand(newSpfCommand())
 	root.AddCommand(newReputationCommand())
 	root.AddCommand(newScamCommand())
+	root.AddCommand(newWatchCommand())
+	root.AddCommand(newAlertsCommand())
+	root.AddCommand(newWorkpaperCommand())
 
 	return root
 }

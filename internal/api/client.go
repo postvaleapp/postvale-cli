@@ -82,6 +82,50 @@ func (c *Client) get(path string, out any) error {
 	return c.do(http.MethodGet, path, nil, out)
 }
 
+// GetStream issues an authenticated GET and streams the response
+// body to w. Used for binary downloads (PDFs etc.) where we don't
+// want to buffer the whole payload in memory. Cap is still enforced.
+func (c *Client) GetStream(path string, w io.Writer) error {
+	u := *c.base
+	u.Path = path
+
+	req, err := http.NewRequest(http.MethodGet, u.String(), nil)
+	if err != nil {
+		return fmt.Errorf("build request: %w", err)
+	}
+	req.Header.Set("User-Agent", userAgent())
+	if c.token != "" {
+		req.Header.Set("Authorization", "Bearer "+c.token)
+	}
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("request GET %s: %w", u.String(), err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		buf, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+		return &HTTPError{
+			StatusCode: resp.StatusCode,
+			Status:     resp.Status,
+			URL:        u.String(),
+			Body:       buf,
+		}
+	}
+
+	// Stream with a hard ceiling. Workpaper PDFs are well under 8 MiB
+	// in practice; we use the same maxResponseBytes cap as JSON.
+	n, err := io.Copy(w, io.LimitReader(resp.Body, maxResponseBytes+1))
+	if err != nil {
+		return fmt.Errorf("stream body: %w", err)
+	}
+	if n > maxResponseBytes {
+		return fmt.Errorf("response exceeded %d bytes", maxResponseBytes)
+	}
+	return nil
+}
+
 func (c *Client) post(path string, body any, out any) error {
 	var rdr io.Reader
 	if body != nil {

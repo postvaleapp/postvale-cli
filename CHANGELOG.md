@@ -11,6 +11,12 @@ versioning follows [SemVer](https://semver.org/).
 - Phase 1 commands: `check`, `tls`, `dmarc`, `dns`, `headers`,
   `mta-sts`, `bimi`, `dnssec`, `caa`, `subdomains`, `takeover`,
   `spoof`, `spf flatten`, `reputation`, `scam`, `version`
+- Phase 2 (auth + monitoring + workpapers):
+  - `auth login` / `auth logout` / `auth whoami` (loopback OAuth,
+    OS keyring with file fallback)
+  - `watch <domain>` / `watch list` / `watch remove <domain-or-id>`
+  - `alerts` (lists configured webhook + email endpoints)
+  - `workpaper <type> <domain> [--out path]` (streams PDF)
 - Global flags: `--json`, `--quiet`, `--no-color`, `--exit-on-fail`,
   `--timeout`, `--api`, `--token`, `--config`
 - `POSTVALE_API` + `POSTVALE_TOKEN` env-var fallbacks
