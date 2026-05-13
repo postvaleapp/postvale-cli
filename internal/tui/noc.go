@@ -501,5 +501,11 @@ func renderPanel(title, body string, width, height int) string {
 	header := lipgloss.NewStyle().
 		Foreground(lipgloss.AdaptiveColor{Light: "#94A3B8", Dark: "#64748B"}).
 		Render(strings.Repeat("─", width-2))
-	return style.Render(titleLine + "\n" + header + body)
+	// Newline between header and body forces body to start at column 0
+	// of its own row. Without it lipgloss's wordwrap kicks in (the
+	// rule + first body line exceed the panel width) and eats the
+	// leading space of the first row, which made the severity dot
+	// disappear on the top action-queue item and shifted the first
+	// live-feed line left by one column.
+	return style.Render(titleLine + "\n" + header + "\n" + body)
 }
