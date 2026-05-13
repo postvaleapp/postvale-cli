@@ -10,6 +10,7 @@ import (
 
 	"github.com/charmbracelet/bubbles/help"
 	"github.com/charmbracelet/bubbles/key"
+	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
@@ -167,17 +168,25 @@ type NocModel struct {
 	// round trip. Surfaced in the header as a latency badge - cheap
 	// API-health signal disguised as decoration.
 	lastLatency time.Duration
+
+	// Scroll viewport for the detail view. The detail content is
+	// often taller than a typical terminal (hero + sub-grades +
+	// activity + heatmap + scans + actions). Wrapping it in a
+	// viewport lets the operator scroll instead of having the top
+	// clipped off-screen.
+	detailViewport viewport.Model
 }
 
 func NewNoc(client *api.Client) NocModel {
 	now := time.Now()
 	return NocModel{
-		client:     client,
-		keys:       newNocKeymap(),
-		help:       help.New(),
-		now:        now,
-		bornAt:     now,
-		prevGrades: make(map[string]string),
+		client:         client,
+		keys:           newNocKeymap(),
+		help:           help.New(),
+		now:            now,
+		bornAt:         now,
+		prevGrades:     make(map[string]string),
+		detailViewport: viewport.New(0, 0),
 	}
 }
 
@@ -258,6 +267,15 @@ func (m NocModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.width = msg.Width
 		m.height = msg.Height
 		m.help.Width = msg.Width
+		// Reserve 4 lines: title row + rule + footer help + a safety
+		// gutter so the bottom edge of the viewport never collides
+		// with the help line.
+		vpH := msg.Height - 4
+		if vpH < 8 {
+			vpH = 8
+		}
+		m.detailViewport.Width = msg.Width
+		m.detailViewport.Height = vpH
 		return m, nil
 
 	case nocTickClockMsg:
@@ -401,6 +419,9 @@ func (m NocModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if m.cursor < len(doms) {
 			d := doms[m.cursor]
 			m.detailDomain = &d
+			// New view starts at the top; otherwise we'd inherit the
+			// scroll position from whichever domain was viewed last.
+			m.detailViewport.GotoTop()
 		}
 	case key.Matches(msg, m.keys.Search):
 		m.searchMode = true
@@ -420,21 +441,28 @@ func (m NocModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 }
 
 // handleDetailKey is the keymap while a domain detail view is open.
-// Intentionally small: back out, escalate to browser, refresh, quit.
+// Application keys land first (back / browser / refresh / quit);
+// everything else (↑/↓/k/j/pgup/pgdn/mouse-wheel) goes to the
+// viewport so the operator can scroll a tall detail page that
+// doesn't fit the terminal height.
 func (m NocModel) handleDetailKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "esc", "q":
 		m.detailDomain = nil
+		return m, nil
 	case "b":
 		if m.detailDomain != nil {
 			openURL(m.client.BaseURL() + "/dashboard/" + m.detailDomain.ID)
 		}
+		return m, nil
 	case "r":
 		return m, tea.Batch(m.fetchSummary(), m.fetchFeed())
 	case "ctrl+c":
 		return m, tea.Quit
 	}
-	return m, nil
+	var cmd tea.Cmd
+	m.detailViewport, cmd = m.detailViewport.Update(msg)
+	return m, cmd
 }
 
 // ----- view -----
@@ -444,7 +472,8 @@ func (m NocModel) View() string {
 		return m.renderSplash()
 	}
 	if m.detailDomain != nil {
-		return m.renderShell(m.renderDetail())
+		m.detailViewport.SetContent(m.renderDetail())
+		return m.renderShell(m.detailViewport.View())
 	}
 	body := m.renderStatsBar() + "\n\n" + m.renderPanes()
 	if m.now.Before(m.legendUntil) {
@@ -609,8 +638,13 @@ func (m NocModel) renderFooter() string {
 		errLine = StyleFail.Render("! "+m.err.Error()) + "\n"
 	}
 	if m.detailDomain != nil {
+		scrollPct := int(m.detailViewport.ScrollPercent() * 100)
+		scrollHint := ""
+		if !m.detailViewport.AtTop() || !m.detailViewport.AtBottom() {
+			scrollHint = fmt.Sprintf(" · %d%%", scrollPct)
+		}
 		return errLine + StyleDim.Render(
-			"b open in browser · esc back · r refresh · q quit",
+			"↑/↓ scroll"+scrollHint+" · b open in browser · esc back · r refresh · q quit",
 		)
 	}
 	return errLine + m.help.View(m.keys)
