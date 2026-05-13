@@ -1,0 +1,416 @@
+package commands
+
+import (
+	"bufio"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
+	"net/url"
+	"os"
+	"sort"
+	"strings"
+	"time"
+
+	"github.com/spf13/cobra"
+
+	"github.com/postvaleapp/postvale-cli/internal/auth"
+)
+
+// `postvale audit` is the local-verification toolkit for the audit-log
+// Merkle chain documented at https://postvale.app/docs/verify. Two
+// subcommands today: `export` pulls the caller's chain segment, and
+// `verify` re-hashes a JSONL file (no Postvale account required to
+// run verify; the algorithm is public).
+
+func newAuditCommand() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "audit",
+		Short: "Export + verify the audit-log Merkle chain",
+	}
+	cmd.AddCommand(newAuditExportCommand())
+	cmd.AddCommand(newAuditVerifyCommand())
+	return cmd
+}
+
+func newAuditExportCommand() *cobra.Command {
+	var (
+		outPath string
+		scope   string
+		since   string
+		format  string
+	)
+	cmd := &cobra.Command{
+		Use:   "export",
+		Short: "Download your audit chain segment (JSONL)",
+		Long: `Fetches /api/v1/audit/export and writes the response to stdout
+or to a file.
+
+  --scope:   'mine' (default) or 'all' (admin-only).
+  --since:   ISO-8601 timestamp; only rows on or after this.
+  --format:  'jsonl' (default) or 'json' (envelope with metadata).
+  --out:     File path to write to. Defaults to stdout.`,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			if _, err := auth.Load(); err != nil && Globals().Token == "" {
+				if errors.Is(err, auth.ErrNotLoggedIn) {
+					return fmt.Errorf("not signed in - run `postvale auth login` first")
+				}
+				return err
+			}
+			client, err := newClient()
+			if err != nil {
+				return err
+			}
+
+			path := "/api/v1/audit/export"
+			q := url.Values{}
+			if scope != "" {
+				q.Set("scope", scope)
+			}
+			if since != "" {
+				q.Set("since", since)
+			}
+			if format != "" {
+				q.Set("format", format)
+			}
+			if enc := q.Encode(); enc != "" {
+				path += "?" + enc
+			}
+
+			var w io.Writer = os.Stdout
+			if outPath != "" {
+				f, err := os.Create(outPath)
+				if err != nil {
+					return fmt.Errorf("open %s: %w", outPath, err)
+				}
+				defer f.Close()
+				w = f
+			}
+			if err := client.GetStream(path, w); err != nil {
+				return fmt.Errorf("audit export: %w", err)
+			}
+			if outPath != "" && !Globals().Quiet {
+				fmt.Fprintf(os.Stderr, "Wrote %s\n", outPath)
+			}
+			return nil
+		},
+	}
+	cmd.Flags().StringVar(&outPath, "out", "", "File to write to (default stdout)")
+	cmd.Flags().StringVar(&scope, "scope", "mine", "mine | all")
+	cmd.Flags().StringVar(&since, "since", "", "ISO-8601 lower bound")
+	cmd.Flags().StringVar(&format, "format", "jsonl", "jsonl | json")
+	return cmd
+}
+
+func newAuditVerifyCommand() *cobra.Command {
+	var (
+		anchorHead string
+		fetchLive  bool
+	)
+	cmd := &cobra.Command{
+		Use:   "verify <file.jsonl>",
+		Short: "Re-compute the Merkle chain on a local export",
+		Long: `Verifies a local audit-chain export against the published spec
+at https://postvale.app/docs/verify. No Postvale account required.
+
+  postvale audit verify chain.jsonl
+  postvale audit verify chain.jsonl --anchor <hex>
+  postvale audit verify chain.jsonl --fetch-anchor
+
+The verifier:
+  1. Parses the file as JSONL (or a JSON array).
+  2. Re-computes each row's sha256(canonical_json(fields || prev_hash))
+     and compares to the stored row_hash.
+  3. Asserts each row's prev_hash links to the previous row's row_hash.
+  4. Optionally compares the computed final hash to a known anchor
+     head (paste with --anchor or fetch live with --fetch-anchor).
+
+Exit code 0 on PASS, 1 on FAIL. Use --json to get machine output.`,
+		Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			rows, err := loadAuditRows(args[0])
+			if err != nil {
+				return err
+			}
+
+			var anchor string
+			if fetchLive {
+				client, err := newClient()
+				if err != nil {
+					return err
+				}
+				live, err := client.LiveAnchorHead()
+				if err != nil {
+					return fmt.Errorf("fetch live anchor: %w", err)
+				}
+				anchor = live
+			} else if anchorHead != "" {
+				anchor = strings.TrimSpace(anchorHead)
+			}
+
+			res := verifyChain(rows, anchor)
+			if Globals().JSON {
+				return json.NewEncoder(os.Stdout).Encode(res)
+			}
+			printVerifyResult(res)
+			if !res.OK {
+				return errors.New("verification failed")
+			}
+			return nil
+		},
+	}
+	cmd.Flags().StringVar(&anchorHead, "anchor", "", "Expected anchor head hash")
+	cmd.Flags().BoolVar(&fetchLive, "fetch-anchor", false, "Fetch live head from /api/v1/audit/anchors")
+	return cmd
+}
+
+// ----- chain math (mirrors src/lib/audit-chain.ts in the webapp) -----
+
+type exportedRow struct {
+	ID        int64                  `json:"id"`
+	UserID    *string                `json:"user_id"`
+	Action    string                 `json:"action"`
+	Resource  *string                `json:"resource"`
+	Metadata  map[string]interface{} `json:"metadata"`
+	IP        *string                `json:"ip"`
+	UserAgent *string                `json:"user_agent"`
+	CreatedAt string                 `json:"created_at"`
+	PrevHash  *string                `json:"prev_hash"`
+	RowHash   string                 `json:"row_hash"`
+}
+
+// canonicalJSON emits a deterministic JSON encoding: object keys sorted
+// alphabetically, no whitespace, JSON strings escaped per encoding/json.
+// Identical algorithm to the TypeScript reference at /docs/verify so
+// this verifier matches the webapp + CLI implementations bit-for-bit.
+func canonicalJSON(v interface{}) string {
+	if v == nil {
+		return "null"
+	}
+	switch val := v.(type) {
+	case string:
+		return mustJSON(val)
+	case bool, float64, int, int64:
+		return mustJSON(val)
+	case []interface{}:
+		parts := make([]string, len(val))
+		for i, e := range val {
+			parts[i] = canonicalJSON(e)
+		}
+		return "[" + strings.Join(parts, ",") + "]"
+	case map[string]interface{}:
+		keys := make([]string, 0, len(val))
+		for k := range val {
+			keys = append(keys, k)
+		}
+		sort.Strings(keys)
+		parts := make([]string, len(keys))
+		for i, k := range keys {
+			parts[i] = mustJSON(k) + ":" + canonicalJSON(val[k])
+		}
+		return "{" + strings.Join(parts, ",") + "}"
+	default:
+		return mustJSON(val)
+	}
+}
+
+func mustJSON(v interface{}) string {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return "null"
+	}
+	return string(b)
+}
+
+func ptrOrNil(p *string) interface{} {
+	if p == nil {
+		return nil
+	}
+	return *p
+}
+
+func computeRowHash(row exportedRow, prevHash *string) string {
+	var prev interface{}
+	if prevHash != nil {
+		prev = *prevHash
+	}
+	payload := canonicalJSON(map[string]interface{}{
+		"action":     row.Action,
+		"created_at": row.CreatedAt,
+		"ip":         ptrOrNil(row.IP),
+		"metadata":   asInterface(row.Metadata),
+		"prev_hash":  prev,
+		"resource":   ptrOrNil(row.Resource),
+		"user_agent": ptrOrNil(row.UserAgent),
+		"user_id":    ptrOrNil(row.UserID),
+	})
+	sum := sha256.Sum256([]byte(payload))
+	return hex.EncodeToString(sum[:])
+}
+
+func asInterface(m map[string]interface{}) interface{} {
+	if m == nil {
+		return nil
+	}
+	return map[string]interface{}(m)
+}
+
+// ----- file loading -----
+
+func loadAuditRows(path string) ([]exportedRow, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, fmt.Errorf("open %s: %w", path, err)
+	}
+	defer f.Close()
+
+	// Peek the first byte to decide JSON vs JSONL.
+	br := bufio.NewReader(f)
+	first, err := br.Peek(1)
+	if err != nil && !errors.Is(err, io.EOF) {
+		return nil, err
+	}
+	if len(first) > 0 && (first[0] == '[' || first[0] == '{') {
+		all, err := io.ReadAll(br)
+		if err != nil {
+			return nil, err
+		}
+		// Try array first, then { rows: [...] } envelope.
+		var arr []exportedRow
+		if json.Unmarshal(all, &arr) == nil && len(arr) > 0 {
+			return arr, nil
+		}
+		var env struct {
+			Rows []exportedRow `json:"rows"`
+		}
+		if json.Unmarshal(all, &env) == nil {
+			return env.Rows, nil
+		}
+		return nil, errors.New("could not parse file as JSONL, JSON array, or {rows: []} envelope")
+	}
+
+	// JSONL.
+	var out []exportedRow
+	sc := bufio.NewScanner(br)
+	sc.Buffer(make([]byte, 0, 64*1024), 4*1024*1024)
+	for sc.Scan() {
+		line := strings.TrimSpace(sc.Text())
+		if line == "" {
+			continue
+		}
+		var r exportedRow
+		if err := json.Unmarshal([]byte(line), &r); err != nil {
+			continue
+		}
+		out = append(out, r)
+	}
+	if err := sc.Err(); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// ----- verification -----
+
+type verifyResult struct {
+	OK            bool   `json:"ok"`
+	RowsChecked   int    `json:"rowsChecked"`
+	TotalRows     int    `json:"totalRows"`
+	ChainHead     string `json:"chainHead"`
+	AnchorMatch   string `json:"anchorMatch,omitempty"`
+	FirstMismatch *struct {
+		RowID    int64  `json:"rowId"`
+		Field    string `json:"field,omitempty"`
+		Declared string `json:"declared"`
+		Computed string `json:"computed"`
+	} `json:"firstMismatch,omitempty"`
+	DurationMs int64 `json:"durationMs"`
+}
+
+func verifyChain(rows []exportedRow, anchorHead string) verifyResult {
+	start := time.Now()
+	res := verifyResult{TotalRows: len(rows)}
+	if len(rows) == 0 {
+		res.DurationMs = time.Since(start).Milliseconds()
+		return res
+	}
+
+	var lastHash string
+	for i, r := range rows {
+		if i > 0 && r.PrevHash != nil && *r.PrevHash != lastHash {
+			res.FirstMismatch = &struct {
+				RowID    int64  `json:"rowId"`
+				Field    string `json:"field,omitempty"`
+				Declared string `json:"declared"`
+				Computed string `json:"computed"`
+			}{
+				RowID:    r.ID,
+				Field:    "prev_hash linkage",
+				Declared: *r.PrevHash,
+				Computed: lastHash,
+			}
+			break
+		}
+		computed := computeRowHash(r, r.PrevHash)
+		if computed != r.RowHash {
+			res.FirstMismatch = &struct {
+				RowID    int64  `json:"rowId"`
+				Field    string `json:"field,omitempty"`
+				Declared string `json:"declared"`
+				Computed string `json:"computed"`
+			}{
+				RowID:    r.ID,
+				Declared: r.RowHash,
+				Computed: computed,
+			}
+			break
+		}
+		lastHash = r.RowHash
+		res.RowsChecked++
+	}
+	res.ChainHead = lastHash
+
+	if anchorHead != "" {
+		if lastHash == anchorHead {
+			res.AnchorMatch = "match"
+		} else {
+			res.AnchorMatch = "mismatch"
+		}
+	}
+
+	res.OK = res.FirstMismatch == nil &&
+		(anchorHead == "" || res.AnchorMatch == "match")
+	res.DurationMs = time.Since(start).Milliseconds()
+	return res
+}
+
+func printVerifyResult(r verifyResult) {
+	if r.OK {
+		fmt.Println("\n  \033[32m✓ PASS\033[0m")
+	} else {
+		fmt.Println("\n  \033[31m✗ FAIL\033[0m")
+	}
+	fmt.Printf("  %d of %d rows checked in %dms\n", r.RowsChecked, r.TotalRows, r.DurationMs)
+	if r.ChainHead != "" {
+		fmt.Printf("  computed head:  %s\n", r.ChainHead)
+	}
+	if r.AnchorMatch != "" {
+		if r.AnchorMatch == "match" {
+			fmt.Println("  anchor match:   \033[32m✓ matches supplied anchor\033[0m")
+		} else {
+			fmt.Println("  anchor match:   \033[31m✗ differs from supplied anchor\033[0m")
+		}
+	}
+	if r.FirstMismatch != nil {
+		fmt.Printf("\n  first mismatch on row %d", r.FirstMismatch.RowID)
+		if r.FirstMismatch.Field != "" {
+			fmt.Printf(" (%s)", r.FirstMismatch.Field)
+		}
+		fmt.Println()
+		fmt.Printf("    declared: %s\n", r.FirstMismatch.Declared)
+		fmt.Printf("    computed: %s\n", r.FirstMismatch.Computed)
+	}
+	fmt.Println()
+}

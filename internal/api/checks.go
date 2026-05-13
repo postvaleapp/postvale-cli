@@ -610,6 +610,24 @@ type recentScansResp struct {
 	Cursor *string      `json:"cursor"`
 }
 
+// LiveAnchorHead returns the current chain head hash from
+// /api/v1/audit/anchors (public, no auth). Empty string + error if the
+// chain is empty or the endpoint is unreachable.
+func (c *Client) LiveAnchorHead() (string, error) {
+	var out struct {
+		Current struct {
+			HeadHash *string `json:"headHash"`
+		} `json:"current"`
+	}
+	if err := c.get("/api/v1/audit/anchors", &out); err != nil {
+		return "", err
+	}
+	if out.Current.HeadHash == nil {
+		return "", fmt.Errorf("no live anchor head (chain may be empty)")
+	}
+	return *out.Current.HeadHash, nil
+}
+
 // RecentScans returns the latest scans across the caller's domain set.
 // since is an ISO timestamp; when non-empty, only scans with ranAt
 // strictly after it are returned (cursor-based tail).

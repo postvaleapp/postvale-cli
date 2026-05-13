@@ -80,6 +80,7 @@ and --exit-on-fail to gate deploys on posture grades.`,
 	root.AddCommand(newTuiCommand())
 	root.AddCommand(newNocCommand())
 	root.AddCommand(newCiCommand())
+	root.AddCommand(newAuditCommand())
 
 	return root
 }
