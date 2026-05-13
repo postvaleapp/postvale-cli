@@ -852,3 +852,20 @@ func (c *Client) Vulnerabilities() (*VulnerabilitiesResp, error) {
 	}
 	return &out, nil
 }
+
+// ---- CLI self-revoke ----
+
+type CliRevokeResp struct {
+	OK        bool   `json:"ok"`
+	RevokedAt string `json:"revokedAt"`
+}
+
+// CliRevoke flips revokedAt on the API key carrying the current
+// request. Used by `postvale auth logout --remote`.
+func (c *Client) CliRevoke() (*CliRevokeResp, error) {
+	var out CliRevokeResp
+	if err := c.post("/api/v1/cli/revoke", nil, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}

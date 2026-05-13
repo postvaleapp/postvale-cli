@@ -98,23 +98,72 @@ Revoke from the Account page if you ever need to.`,
 }
 
 func newAuthLogoutCommand() *cobra.Command {
-	return &cobra.Command{
+	var remote bool
+	cmd := &cobra.Command{
 		Use:   "logout",
-		Short: "Forget the locally-stored token (does not revoke on server)",
-		Long: `Delete the local credential. Does NOT revoke the token on
-postvale.app - the server still considers it valid until you revoke
-it explicitly from the Account page.`,
+		Short: "Forget the locally-stored token (use --remote to revoke server-side too)",
+		Long: `Delete the local credential. By default this is local-only: the
+server still considers the token valid until you revoke it explicitly
+(via /account or this command with --remote).
+
+Use --remote to also revoke the token server-side. After that the
+token is dead everywhere - no other machine still holding it can
+keep using it. CLI tokens are independent of browser sessions by
+design; signing out of the webapp does NOT revoke them.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			g := Globals()
+			configureOutput(cmd.OutOrStdout())
+
+			if remote {
+				// Use the stored token to call the revoke endpoint
+				// BEFORE deleting it locally, otherwise the server
+				// can't tell which key to flip.
+				token, err := auth.Load()
+				if err != nil {
+					if errors.Is(err, auth.ErrNotLoggedIn) {
+						fmt.Fprintln(cmd.OutOrStdout(), output.StyleDim.Render(
+							"No local credential to revoke. Already logged out.",
+						))
+						return nil
+					}
+					return err
+				}
+				client, cerr := api.New(g.APIBase, token, 15*time.Second)
+				if cerr != nil {
+					return cerr
+				}
+				if _, rerr := client.CliRevoke(); rerr != nil {
+					if api.IsAuthError(rerr) {
+						// Token already invalid server-side. Continue to
+						// the local delete - nothing useful to revoke.
+						fmt.Fprintln(cmd.OutOrStdout(), output.StyleDim.Render(
+							"Token was already invalid server-side; clearing the local credential.",
+						))
+					} else {
+						return fmt.Errorf("remote revoke: %w", rerr)
+					}
+				} else {
+					fmt.Fprintln(cmd.OutOrStdout(), output.StyleOK.Render(
+						"Revoked server-side.",
+					))
+				}
+			}
+
 			if err := auth.Delete(); err != nil {
 				return err
 			}
 			fmt.Fprintln(cmd.OutOrStdout(), output.StyleOK.Render("Logged out locally."))
-			fmt.Fprintln(cmd.OutOrStdout(), output.StyleDim.Render(
-				"To fully revoke, visit "+Globals().APIBase+"/account",
-			))
+			if !remote {
+				fmt.Fprintln(cmd.OutOrStdout(), output.StyleDim.Render(
+					"Re-run with --remote to also revoke on "+g.APIBase+", or revoke from /account.",
+				))
+			}
 			return nil
 		},
 	}
+	cmd.Flags().BoolVar(&remote, "remote", false,
+		"Also revoke the token server-side (kills it for every machine still holding it)")
+	return cmd
 }
 
 func newAuthWhoamiCommand() *cobra.Command {

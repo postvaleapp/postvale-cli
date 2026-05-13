@@ -7,6 +7,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/spf13/cobra"
 
+	"github.com/postvaleapp/postvale-cli/internal/api"
 	"github.com/postvaleapp/postvale-cli/internal/auth"
 	"github.com/postvaleapp/postvale-cli/internal/tui"
 )
@@ -39,6 +40,21 @@ Start on a specific page with --page <name>:
 					return fmt.Errorf("not signed in - run `postvale auth login` first")
 				}
 				return err
+			}
+
+			// Validate the token is still active server-side before
+			// dropping into the TUI. The local credential file can
+			// stick around long after the token was revoked from
+			// /account or by a security event - same way `gh` and
+			// `vercel` validate. Without this the shell renders
+			// "logged in" chrome while every page fetches 401.
+			if _, err := client.Me(); err != nil {
+				if api.IsAuthError(err) {
+					return fmt.Errorf("the stored token was rejected by the server " +
+						"(revoked, expired, or password changed). Run `postvale auth login` to re-authenticate. " +
+						"Browser logout does NOT revoke CLI tokens by design - use /account to revoke")
+				}
+				return fmt.Errorf("could not reach api: %w", err)
 			}
 
 			start, err := parseShellPage(startPage)

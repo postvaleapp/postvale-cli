@@ -7,6 +7,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/spf13/cobra"
 
+	"github.com/postvaleapp/postvale-cli/internal/api"
 	"github.com/postvaleapp/postvale-cli/internal/auth"
 	"github.com/postvaleapp/postvale-cli/internal/tui"
 )
@@ -36,6 +37,17 @@ Equivalent to: postvale tui --page noc`,
 					return fmt.Errorf("not signed in - run `postvale auth login` first")
 				}
 				return err
+			}
+
+			// Validate the token round-trips before launching. Without
+			// this the NOC just renders blank panels + auth errors;
+			// surfacing the cause at the command line is friendlier.
+			if _, err := client.Me(); err != nil {
+				if api.IsAuthError(err) {
+					return fmt.Errorf("the stored token was rejected by the server " +
+						"(revoked, expired, or password changed). Run `postvale auth login` to re-authenticate")
+				}
+				return fmt.Errorf("could not reach api: %w", err)
 			}
 
 			model := tui.NewShell(client, Globals().APIBase, tui.PageNoc)

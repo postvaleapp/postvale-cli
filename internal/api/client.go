@@ -62,6 +62,33 @@ type HTTPError struct {
 	Body       []byte
 }
 
+// IsAuthError returns true when err is an HTTPError whose status code
+// indicates the caller's token was rejected by the server (401). Used
+// by command pre-flight checks + the TUI shell to distinguish a token
+// problem from a transient network or server issue.
+func IsAuthError(err error) bool {
+	if err == nil {
+		return false
+	}
+	var he *HTTPError
+	for cur := err; cur != nil; {
+		if h, ok := cur.(*HTTPError); ok {
+			he = h
+			break
+		}
+		// Unwrap manually since this package can't depend on errors.As
+		// reaching custom error types through fmt.Errorf wrapping in
+		// every call site - the get/do helpers return the *HTTPError
+		// directly, so a simple type assertion is enough.
+		if u, ok := cur.(interface{ Unwrap() error }); ok {
+			cur = u.Unwrap()
+			continue
+		}
+		break
+	}
+	return he != nil && he.StatusCode == 401
+}
+
 func (e *HTTPError) Error() string {
 	var parsed struct {
 		Error   string `json:"error"`

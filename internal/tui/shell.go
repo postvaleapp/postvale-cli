@@ -108,6 +108,11 @@ type Shell struct {
 	// Cached identity, fetched once and shared across pages that want
 	// to render "rob@... · Pro" headers.
 	me *api.Me
+
+	// Set true when the most recent /me call returned 401 (token
+	// revoked or otherwise rejected). Drives the red banner across the
+	// top of every page so the operator can't miss it.
+	tokenInvalid bool
 }
 
 // NewShell constructs the shell. start is the page rendered first.
@@ -217,6 +222,12 @@ func (s Shell) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case shellMeMsg:
 		if msg.err == nil {
 			s.me = msg.me
+			s.tokenInvalid = false
+		} else if api.IsAuthError(msg.err) {
+			// The stored token was revoked or rejected by the server
+			// since we last checked. Flag it so View() shows the
+			// banner; the operator can Tab+q to quit and re-auth.
+			s.tokenInvalid = true
 		}
 		return s, nil
 
@@ -323,6 +334,21 @@ func (s Shell) View() string {
 	page := ""
 	if m, ok := s.pages[s.active]; ok {
 		page = m.View()
+	}
+	if s.tokenInvalid {
+		// Prepend a screen-wide banner so it appears above whatever
+		// the page is rendering. Width budget = content-area width;
+		// lipgloss will pad to that with the .Width modifier.
+		w := pageContentWidth(s.width)
+		banner := lipgloss.NewStyle().
+			Width(w).
+			Padding(0, 2).
+			Foreground(lipgloss.Color("#FFFFFF")).
+			Background(colRed).
+			Bold(true).
+			Render("✗ Token rejected by the server. Run `postvale auth login` to re-authenticate.  " +
+				"(Browser logout does not revoke CLI tokens; manage at /account.)")
+		page = banner + "\n" + page
 	}
 	// Place sidebar (fixed width) next to the page body. The lipgloss
 	// JoinHorizontal handles uneven heights by padding the shorter
