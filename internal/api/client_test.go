@@ -133,6 +133,32 @@ func TestClientGetEnforcesBodySizeCap(t *testing.T) {
 	}
 }
 
+// Regression: paths with "?key=val" must hit the server as a real
+// query string, not a path with %3F. Caught by /api/v1/scans/recent
+// 400'ing as "Invalid scan id." when the encoded "?" let
+// /api/v1/scans/[id] win the route match.
+func TestClientGetSplitsPathAndQuery(t *testing.T) {
+	var sawPath, sawQuery string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		sawPath = r.URL.Path
+		sawQuery = r.URL.RawQuery
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{}`))
+	}))
+	defer srv.Close()
+
+	c, _ := New(srv.URL, "", 5*time.Second)
+	if err := c.get("/api/v1/scans/recent?limit=50&since=2026-05-13T00:00:00Z", nil); err != nil {
+		t.Fatalf("get: %v", err)
+	}
+	if sawPath != "/api/v1/scans/recent" {
+		t.Fatalf("server got Path=%q, want /api/v1/scans/recent", sawPath)
+	}
+	if !strings.Contains(sawQuery, "limit=50") || !strings.Contains(sawQuery, "since=") {
+		t.Fatalf("server got RawQuery=%q, want both limit + since", sawQuery)
+	}
+}
+
 func TestClientGetCtxNotLeaked(t *testing.T) {
 	// Mostly a smoke test that the client cleans up after itself; we
 	// don't expose context wiring yet but verify timeout fires.

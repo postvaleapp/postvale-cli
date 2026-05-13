@@ -82,12 +82,26 @@ func (c *Client) get(path string, out any) error {
 	return c.do(http.MethodGet, path, nil, out)
 }
 
+// resolve splits path into Path + RawQuery against the client's base
+// URL. Required because setting url.URL.Path on a string that contains
+// "?foo=bar" would URL-escape the "?" and turn the query into a path
+// segment server-side.
+func (c *Client) resolve(path string) (*url.URL, error) {
+	ref, err := url.Parse(path)
+	if err != nil {
+		return nil, fmt.Errorf("invalid request path %q: %w", path, err)
+	}
+	return c.base.ResolveReference(ref), nil
+}
+
 // GetStream issues an authenticated GET and streams the response
 // body to w. Used for binary downloads (PDFs etc.) where we don't
 // want to buffer the whole payload in memory. Cap is still enforced.
 func (c *Client) GetStream(path string, w io.Writer) error {
-	u := *c.base
-	u.Path = path
+	u, err := c.resolve(path)
+	if err != nil {
+		return err
+	}
 
 	req, err := http.NewRequest(http.MethodGet, u.String(), nil)
 	if err != nil {
@@ -139,8 +153,10 @@ func (c *Client) post(path string, body any, out any) error {
 }
 
 func (c *Client) do(method, path string, body io.Reader, out any) error {
-	u := *c.base
-	u.Path = path
+	u, err := c.resolve(path)
+	if err != nil {
+		return err
+	}
 
 	req, err := http.NewRequest(method, u.String(), body)
 	if err != nil {
