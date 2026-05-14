@@ -30,6 +30,7 @@ const (
 	PageTools
 	PageVerify
 	PageAccount
+	PageExtension
 )
 
 // Sidebar width includes the right rule character. Sized so the
@@ -66,6 +67,7 @@ var sidebarTree = []sidebarSection{
 	}},
 	{"ACCOUNT", []sidebarItem{
 		{PageAccount, "Account"},
+		{PageExtension, "Extension billing"},
 	}},
 }
 
@@ -187,6 +189,8 @@ func (s Shell) ensurePage(p ShellPage) (Shell, tea.Cmd) {
 		m = newVerifyPage()
 	case PageAccount:
 		m = newAccountPage(s.client, s.apiBase)
+	case PageExtension:
+		m = newExtensionBillingPage(s.client, s.apiBase)
 	default:
 		return s, nil
 	}

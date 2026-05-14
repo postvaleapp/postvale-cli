@@ -869,3 +869,33 @@ func (c *Client) CliRevoke() (*CliRevokeResp, error) {
 	}
 	return &out, nil
 }
+
+// ---- extension billing ----
+
+type ExtensionTopup struct {
+	Credits   int     `json:"credits"`
+	ExpiresAt *string `json:"expiresAt,omitempty"`
+	Active    bool    `json:"active"`
+}
+
+type ExtensionBudget struct {
+	Plan             string         `json:"plan"`
+	PlanLabel        string         `json:"planLabel"`
+	Seats            int            `json:"seats"`
+	Cadence          string         `json:"cadence"`
+	WindowDays       int            `json:"windowDays"`
+	AggregateTriages *int           `json:"aggregateTriages,omitempty"`
+	Used             int            `json:"used"`
+	Remaining        *int           `json:"remaining,omitempty"`
+	Unlimited        bool           `json:"unlimited"`
+	Topup            ExtensionTopup `json:"topup"`
+	ManageURL        string         `json:"manageUrl"`
+}
+
+func (c *Client) ExtensionBudget() (*ExtensionBudget, error) {
+	var out ExtensionBudget
+	if err := c.get("/api/v1/extension/budget", &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
