@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"net/url"
 	"os/exec"
 	"runtime"
 
@@ -67,9 +68,18 @@ func tableStyles() table.Styles {
 }
 
 // openURL shells out to the platform-native opener via exec.Command
-// argv form (never a shell). Errors are swallowed - the TUI keeps
-// running.
+// argv form (never a shell). Refuses non-http(s) schemes so a
+// malicious --api response or rogue config can't push a file: /
+// javascript: / vbscript: URL to xdg-open / rundll32 / open. Errors
+// after the scheme check are swallowed - the TUI keeps running.
 func openURL(rawURL string) {
+	u, err := url.Parse(rawURL)
+	if err != nil {
+		return
+	}
+	if u.Scheme != "http" && u.Scheme != "https" {
+		return
+	}
 	switch runtime.GOOS {
 	case "darwin":
 		_ = exec.Command("open", rawURL).Start()
