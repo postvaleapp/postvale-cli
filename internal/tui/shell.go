@@ -252,8 +252,12 @@ func (s Shell) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// of where focus is. Picked alt+digit because the textinput
 		// pages (Free tools domain, Verify file path) need to allow
 		// plain digits as typed characters; alt+digit never conflicts.
-		if jumped, ok := s.tryNumberShortcut(msg.String()); ok {
-			return jumped, nil
+		// IMPORTANT: forward the page's Init Cmd so a freshly-mounted
+		// tab actually fires its fetchers + tick timers. Dropping the
+		// Cmd left NOC stuck on "loading..." because fetchSummary
+		// never ran.
+		if jumped, cmd, ok := s.tryNumberShortcut(msg.String()); ok {
+			return jumped, cmd
 		}
 		if s.sidebarFocused {
 			return s.handleSidebarKey(msg)
@@ -270,40 +274,45 @@ func (s Shell) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 // tryNumberShortcut maps alt+1..alt+9 to the nth flat-nav entry +
-// activates that page. Returns the updated shell + a true flag, or
-// the unchanged shell + false. Index is 1-based to match the keys.
-func (s Shell) tryNumberShortcut(key string) (Shell, bool) {
+// activates that page. Returns the updated shell, the page's Init
+// Cmd (so fresh-mount fetchers run), and a true flag - or the
+// unchanged shell with a nil Cmd and false. Index is 1-based to
+// match the keys.
+func (s Shell) tryNumberShortcut(key string) (Shell, tea.Cmd, bool) {
 	if len(key) != 5 || key[:4] != "alt+" {
-		return s, false
+		return s, nil, false
 	}
 	digit := key[4]
 	if digit < '1' || digit > '9' {
-		return s, false
+		return s, nil, false
 	}
 	flat := flatNav()
 	idx := int(digit - '1')
 	if idx >= len(flat) {
-		return s, false
+		return s, nil, false
 	}
 	target := flat[idx].page
 	if target == s.active {
-		return s, true
+		return s, nil, true
 	}
 	s.cursor = idx
 	s.active = target
 	s.sidebarFocused = false
-	ns, _ := s.ensurePage(target)
+	ns, cmd := s.ensurePage(target)
 	if s.width > 0 {
 		sub := tea.WindowSizeMsg{
 			Width:  pageContentWidth(s.width),
 			Height: s.height,
 		}
 		if m, ok := ns.pages[target]; ok {
-			nm, _ := m.Update(sub)
+			nm, resizeCmd := m.Update(sub)
 			ns.pages[target] = nm
+			if resizeCmd != nil {
+				cmd = tea.Batch(cmd, resizeCmd)
+			}
 		}
 	}
-	return ns, true
+	return ns, cmd, true
 }
 
 func (s Shell) handleSidebarKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
@@ -337,8 +346,11 @@ func (s Shell) handleSidebarKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 					Height: s.height,
 				}
 				if m, ok := ns.pages[target]; ok {
-					nm, _ := m.Update(sub)
+					nm, resizeCmd := m.Update(sub)
 					ns.pages[target] = nm
+					if resizeCmd != nil {
+						cmd = tea.Batch(cmd, resizeCmd)
+					}
 				}
 			}
 			return ns, cmd
