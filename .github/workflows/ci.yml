@@ -42,3 +42,31 @@ jobs:
 
       - name: test
         run: go test ./...
+
+  integration:
+    name: live API integration
+    needs: test
+    # Only runs on pushes to main where the POSTVALE_TEST_TOKEN secret
+    # is configured. Skipped on PR (forks don't have secrets, and we
+    # don't want to leak the token via PR test logs). One Linux runner
+    # is enough; the API is the system under test, not the OS.
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.24'
+          cache: true
+
+      - name: integration tests (live API)
+        env:
+          POSTVALE_LIVE_TESTS: '1'
+          POSTVALE_TEST_API: https://postvale.app
+          POSTVALE_TEST_DOMAIN: postvale.app
+          POSTVALE_TEST_TOKEN: ${{ secrets.POSTVALE_TEST_TOKEN }}
+        run: |
+          if [ -z "$POSTVALE_TEST_TOKEN" ]; then
+            echo "::warning::POSTVALE_TEST_TOKEN secret not set; skipping monitoring endpoint tests"
+          fi
+          go test ./internal/api -run Integration -v -timeout 120s

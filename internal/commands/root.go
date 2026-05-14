@@ -84,6 +84,14 @@ and --exit-on-fail to gate deploys on posture grades.`,
 	root.AddCommand(newVendorsCommand())
 	root.AddCommand(newEvidencePackCommand())
 
+	// Pro+ monitoring surfaces. One-shot CLI versions of the matching
+	// TUI tabs; same data, same Pro gate.
+	root.AddCommand(newBrandWatchCommand())
+	root.AddCommand(newLeakSitesCommand())
+	root.AddCommand(newCredentialLeaksCommand())
+	root.AddCommand(newVendorWatchCommand())
+	root.AddCommand(newCvesCommand())
+
 	return root
 }
 

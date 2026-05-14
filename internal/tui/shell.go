@@ -244,6 +244,13 @@ func (s Shell) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			s.sidebarFocused = !s.sidebarFocused
 			return s, nil
 		}
+		// Alt+1..Alt+9 jump directly to the nth nav entry, regardless
+		// of where focus is. Picked alt+digit because the textinput
+		// pages (Free tools domain, Verify file path) need to allow
+		// plain digits as typed characters; alt+digit never conflicts.
+		if jumped, ok := s.tryNumberShortcut(msg.String()); ok {
+			return jumped, nil
+		}
 		if s.sidebarFocused {
 			return s.handleSidebarKey(msg)
 		}
@@ -256,6 +263,43 @@ func (s Shell) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 
 	return s.forwardToActive(msg)
+}
+
+// tryNumberShortcut maps alt+1..alt+9 to the nth flat-nav entry +
+// activates that page. Returns the updated shell + a true flag, or
+// the unchanged shell + false. Index is 1-based to match the keys.
+func (s Shell) tryNumberShortcut(key string) (Shell, bool) {
+	if len(key) != 5 || key[:4] != "alt+" {
+		return s, false
+	}
+	digit := key[4]
+	if digit < '1' || digit > '9' {
+		return s, false
+	}
+	flat := flatNav()
+	idx := int(digit - '1')
+	if idx >= len(flat) {
+		return s, false
+	}
+	target := flat[idx].page
+	if target == s.active {
+		return s, true
+	}
+	s.cursor = idx
+	s.active = target
+	s.sidebarFocused = false
+	ns, _ := s.ensurePage(target)
+	if s.width > 0 {
+		sub := tea.WindowSizeMsg{
+			Width:  pageContentWidth(s.width),
+			Height: s.height,
+		}
+		if m, ok := ns.pages[target]; ok {
+			nm, _ := m.Update(sub)
+			ns.pages[target] = nm
+		}
+	}
+	return ns, true
 }
 
 func (s Shell) handleSidebarKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
@@ -398,14 +442,21 @@ func (s Shell) renderSidebar() string {
 				cursor = StyleLabel.Render("· ")
 				style = lipgloss.NewStyle().Foreground(colAmberMid).Underline(true)
 			}
-			lines = append(lines, cursor+style.Render(label))
+			// Alt+N hint after the label for the first 9 entries.
+			// Keeps the shortcut discoverable without forcing the user
+			// to read help text.
+			suffix := ""
+			if idx < 9 {
+				suffix = StyleDim.Render(fmt.Sprintf("  ⌥%d", idx+1))
+			}
+			lines = append(lines, cursor+style.Render(label)+suffix)
 			idx++
 		}
 		lines = append(lines, "")
 	}
 
 	// Footer hint inside the sidebar - what Tab does, what q does.
-	hint := "Tab focus · q quit"
+	hint := "Tab focus · ⌥N jump"
 	if s.sidebarFocused {
 		hint = "Tab leave · ↵ open"
 	}

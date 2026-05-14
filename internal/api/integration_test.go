@@ -207,8 +207,147 @@ func TestIntegration_CheckTools(t *testing.T) {
 	}
 }
 
+// TestIntegration_MonitoringEndpoints exercises the Pro+ monitoring
+// endpoints (brand watchlist, leak sites, credential leaks, vendor
+// watchlist, CVEs). Requires a token from a Pro+ account in
+// POSTVALE_TEST_TOKEN. Same opt-in env var. We assert each endpoint
+// either returns 200 with a parseable body, OR 402 (which is the
+// correct response for free / Starter tokens).
+
+func TestIntegration_MonitoringEndpoints(t *testing.T) {
+	if os.Getenv("POSTVALE_LIVE_TESTS") != "1" {
+		t.Skip("set POSTVALE_LIVE_TESTS=1 to run live API tests")
+	}
+	token := os.Getenv("POSTVALE_TEST_TOKEN")
+	if token == "" {
+		t.Skip("set POSTVALE_TEST_TOKEN to run authenticated tests")
+	}
+	apiBase := os.Getenv("POSTVALE_TEST_API")
+	if apiBase == "" {
+		apiBase = "https://postvale.app"
+	}
+
+	client, err := api.New(apiBase, token, 60*time.Second)
+	if err != nil {
+		t.Fatalf("new client: %v", err)
+	}
+
+	type monCase struct {
+		name string
+		run  func() error
+	}
+
+	// Each case ignores 402 as "user isn't on a Pro+ tier" - the
+	// shape contract is what we're testing, not the entitlement. Any
+	// other error fails the subtest.
+	allow402 := func(err error) bool {
+		if err == nil {
+			return false
+		}
+		// HTTPError stringifies as "api: ... (402 ...)" so a contains
+		// check is enough without re-exporting the type.
+		return contains(err.Error(), "402") || contains(err.Error(), "pro_required")
+	}
+
+	cases := []monCase{
+		{"brand-watchlist", func() error {
+			r, err := client.BrandWatchlist()
+			if allow402(err) {
+				return nil
+			}
+			if err != nil {
+				return err
+			}
+			if r == nil {
+				return errAssert("brand-watchlist returned nil")
+			}
+			return nil
+		}},
+		{"leak-sites", func() error {
+			r, err := client.LeakSites()
+			if allow402(err) {
+				return nil
+			}
+			if err != nil {
+				return err
+			}
+			if r == nil {
+				return errAssert("leak-sites returned nil")
+			}
+			return nil
+		}},
+		{"credential-leaks", func() error {
+			r, err := client.CredentialLeaks()
+			if allow402(err) {
+				return nil
+			}
+			if err != nil {
+				return err
+			}
+			if r == nil {
+				return errAssert("credential-leaks returned nil")
+			}
+			return nil
+		}},
+		{"vendors", func() error {
+			r, err := client.VendorWatchlist()
+			if allow402(err) {
+				return nil
+			}
+			if err != nil {
+				return err
+			}
+			if r == nil {
+				return errAssert("vendors returned nil")
+			}
+			return nil
+		}},
+		{"vulnerabilities", func() error {
+			r, err := client.Vulnerabilities()
+			if allow402(err) {
+				return nil
+			}
+			if err != nil {
+				return err
+			}
+			if r == nil {
+				return errAssert("vulnerabilities returned nil")
+			}
+			return nil
+		}},
+	}
+
+	for _, c := range cases {
+		c := c
+		t.Run(c.name, func(t *testing.T) {
+			t.Parallel()
+			if err := c.run(); err != nil {
+				t.Fatalf("%s: %v", c.name, err)
+			}
+		})
+	}
+}
+
 // errAssert is a tiny helper so the table can fail without pulling in
 // testify just for a single sentinel.
 type errAssert string
 
 func (e errAssert) Error() string { return string(e) }
+
+// contains is a tiny strings.Contains that avoids pulling in the
+// strings package just for one call site (keeps the test file's
+// imports minimal).
+func contains(haystack, needle string) bool {
+	if len(needle) == 0 {
+		return true
+	}
+	if len(needle) > len(haystack) {
+		return false
+	}
+	for i := 0; i+len(needle) <= len(haystack); i++ {
+		if haystack[i:i+len(needle)] == needle {
+			return true
+		}
+	}
+	return false
+}
