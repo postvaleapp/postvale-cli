@@ -10,6 +10,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"strings"
 	"time"
 
 	"github.com/postvaleapp/postvale-cli/internal/version"
@@ -67,14 +68,55 @@ type HTTPError struct {
 // by command pre-flight checks + the TUI shell to distinguish a token
 // problem from a transient network or server issue.
 func IsAuthError(err error) bool {
-	if err == nil {
+	he := asHTTPError(err)
+	return he != nil && he.StatusCode == 401
+}
+
+// IsCloudflareChallenge returns true when err is an HTTPError whose
+// body looks like Cloudflare's bot-challenge interstitial. Datacenter
+// IPs (CI runners, build VMs, ephemeral cloud workstations) routinely
+// get challenged on first hit. The presence of these markers tells us
+// "this isn't a Postvale-server error - the request never reached
+// Postvale". Callers can present a helpful hint instead of a wall of
+// HTML preview.
+//
+// Detection looks at well-known Cloudflare HTML titles. We avoid
+// keying on headers like cf-ray (it appears even on legitimate cached
+// responses) so we don't get false positives.
+func IsCloudflareChallenge(err error) bool {
+	he := asHTTPError(err)
+	if he == nil || he.StatusCode != 403 {
 		return false
 	}
-	var he *HTTPError
+	body := string(he.Body)
+	if len(body) > 4096 {
+		body = body[:4096]
+	}
+	if strings.Contains(body, "<title>Just a moment...</title>") {
+		return true
+	}
+	if strings.Contains(body, "Attention Required! | Cloudflare") {
+		return true
+	}
+	if strings.Contains(body, "cf-mitigated") {
+		return true
+	}
+	if strings.Contains(body, "challenge-platform") {
+		return true
+	}
+	return false
+}
+
+// asHTTPError walks the wrapped-error chain to find an *HTTPError.
+// Shared by IsAuthError and IsCloudflareChallenge so callers don't
+// repeat the unwrap loop.
+func asHTTPError(err error) *HTTPError {
+	if err == nil {
+		return nil
+	}
 	for cur := err; cur != nil; {
 		if h, ok := cur.(*HTTPError); ok {
-			he = h
-			break
+			return h
 		}
 		// Unwrap manually since this package can't depend on errors.As
 		// reaching custom error types through fmt.Errorf wrapping in
@@ -86,10 +128,23 @@ func IsAuthError(err error) bool {
 		}
 		break
 	}
-	return he != nil && he.StatusCode == 401
+	return nil
 }
 
 func (e *HTTPError) Error() string {
+	// Cloudflare bot-challenge interstitial: the request never reached
+	// Postvale. Surface a one-line hint instead of 200 chars of HTML
+	// preview so the operator knows where to look.
+	if IsCloudflareChallenge(e) {
+		return fmt.Sprintf(
+			"api: %s for %s: blocked by Cloudflare bot-challenge "+
+				"(your IP is on a list of datacenter / CI / VPN ranges Cloudflare auto-challenges). "+
+				"This is a network policy on postvale.app, not a Postvale-server error. "+
+				"If you're hitting this from CI or a cloud VM, see "+
+				"https://postvale.app/docs/cloudflare-bypass for the operator-side fix.",
+			e.Status, e.URL,
+		)
+	}
 	var parsed struct {
 		Error   string `json:"error"`
 		Message string `json:"message"`

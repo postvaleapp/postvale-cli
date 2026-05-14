@@ -198,6 +198,18 @@ func TestIntegration_CheckTools(t *testing.T) {
 			t.Parallel()
 			out, err := c.run()
 			if err != nil {
+				// Cloudflare's bot-challenge interstitial means the
+				// runner IP got 403-d at the edge - the request never
+				// reached Postvale, so we can't assert anything about
+				// the response shape. Skip with a clear message rather
+				// than fail CI; the same code path passes from a
+				// non-datacenter IP (the operator's laptop). Real fix
+				// is the Cloudflare config documented at
+				// docs/cloudflare-bypass.md.
+				if api.IsCloudflareChallenge(err) {
+					t.Skipf("%s: blocked by Cloudflare bot-challenge "+
+						"(see docs/cloudflare-bypass.md); request never reached the API", c.name)
+				}
 				t.Fatalf("%s against %s: %v", c.name, domain, err)
 			}
 			if len(out) == 0 {
@@ -322,6 +334,10 @@ func TestIntegration_MonitoringEndpoints(t *testing.T) {
 		t.Run(c.name, func(t *testing.T) {
 			t.Parallel()
 			if err := c.run(); err != nil {
+				if api.IsCloudflareChallenge(err) {
+					t.Skipf("%s: blocked by Cloudflare bot-challenge "+
+						"(see docs/cloudflare-bypass.md); request never reached the API", c.name)
+				}
 				t.Fatalf("%s: %v", c.name, err)
 			}
 		})
