@@ -91,6 +91,7 @@ and --exit-on-fail to gate deploys on posture grades.`,
 	root.AddCommand(newCredentialLeaksCommand())
 	root.AddCommand(newVendorWatchCommand())
 	root.AddCommand(newCvesCommand())
+	root.AddCommand(newProbeCommand())
 
 	return root
 }
