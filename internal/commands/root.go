@@ -58,22 +58,39 @@ and --exit-on-fail to gate deploys on posture grades.`,
 	}
 
 	root.AddCommand(newVersionCommand())
+
+	// v2.1 verb-group surface - the documented CLI shape going
+	// forward. Commands below the verb groups (newCheckCommand
+	// etc) stay live as hidden muscle-memory aliases through v2.x.
+	root.AddCommand(newScanCommand())
+	root.AddCommand(newAiCommand())
+	root.AddCommand(newConfigCommand())
 	root.AddCommand(newAuthCommand())
-	root.AddCommand(newCheckCommand())
-	root.AddCommand(newTLSCommand())
-	root.AddCommand(newDMARCCommand())
-	root.AddCommand(newDNSCommand())
-	root.AddCommand(newHeadersCommand())
-	root.AddCommand(newMtaStsCommand())
-	root.AddCommand(newBimiCommand())
-	root.AddCommand(newDnssecCommand())
-	root.AddCommand(newCaaCommand())
-	root.AddCommand(newSubdomainsCommand())
-	root.AddCommand(newTakeoverCommand())
-	root.AddCommand(newSpoofCommand())
-	root.AddCommand(newSpfCommand())
-	root.AddCommand(newReputationCommand())
-	root.AddCommand(newScamCommand())
+
+	// Flat-command surface from v2.0 (the original postvale shape).
+	// Marked Hidden so `wd --help` no longer enumerates them, but
+	// they remain directly invokable + reachable via `wd help <cmd>`.
+	// Sunset planned for v3.0 once the verb groups settle.
+	root.AddCommand(hidden(newCheckCommand()))
+	root.AddCommand(hidden(newTLSCommand()))
+	root.AddCommand(hidden(newDMARCCommand()))
+	root.AddCommand(hidden(newDNSCommand()))
+	root.AddCommand(hidden(newHeadersCommand()))
+	root.AddCommand(hidden(newMtaStsCommand()))
+	root.AddCommand(hidden(newBimiCommand()))
+	root.AddCommand(hidden(newDnssecCommand()))
+	root.AddCommand(hidden(newCaaCommand()))
+	root.AddCommand(hidden(newSubdomainsCommand()))
+	root.AddCommand(hidden(newTakeoverCommand()))
+	root.AddCommand(hidden(newSpoofCommand()))
+	root.AddCommand(hidden(newSpfCommand()))
+	root.AddCommand(hidden(newReputationCommand()))
+	root.AddCommand(hidden(newScamCommand()))
+
+	// Surfaces that don't yet have a v2.1 verb-group home stay
+	// visible. They get folded into wd watch / wd report / wd
+	// findings in v2.2 alongside the server-side API endpoints
+	// the verb groups need.
 	root.AddCommand(newWatchCommand())
 	root.AddCommand(newAlertsCommand())
 	root.AddCommand(newWorkpaperCommand())
@@ -94,6 +111,15 @@ and --exit-on-fail to gate deploys on posture grades.`,
 	root.AddCommand(newProbeCommand())
 
 	return root
+}
+
+// hidden marks a command as Hidden=true so it doesn't appear in
+// `wd --help` output but stays directly invokable + documented via
+// `wd help <name>`. Used to retire the flat-command surface in
+// favour of the verb groups while keeping muscle memory working.
+func hidden(c *cobra.Command) *cobra.Command {
+	c.Hidden = true
+	return c
 }
 
 // Fills empty global-flag values from env vars. Flag > env > default.
