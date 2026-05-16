@@ -5,7 +5,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/postvaleapp/postvale-cli/internal/output"
+	"github.com/WiredepthHQ/wiredepth-cli/internal/output"
 )
 
 func newCheckCommand() *cobra.Command {
@@ -14,7 +14,7 @@ func newCheckCommand() *cobra.Command {
 		Short: "Full posture report for a domain (TLS + DMARC + DNS + headers + more)",
 		Long: `Run every available check against a domain and emit a one-shot
 composite report with a single letter grade and the top
-recommendations. Equivalent to https://postvale.app/check/<domain>.`,
+recommendations. Equivalent to https://wiredepth.com/check/<domain>.`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			domain, err := normaliseDomain(args[0])

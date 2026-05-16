@@ -9,8 +9,8 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/postvaleapp/postvale-cli/internal/api"
-	"github.com/postvaleapp/postvale-cli/internal/auth"
+	"github.com/WiredepthHQ/wiredepth-cli/internal/api"
+	"github.com/WiredepthHQ/wiredepth-cli/internal/auth"
 )
 
 // `postvale brand`, `postvale leaks`, `postvale creds`, `postvale
@@ -278,7 +278,7 @@ func authClient() (*api.Client, error) {
 func wrap402(err error, tool string) error {
 	msg := err.Error()
 	if strings.Contains(msg, "402") || strings.Contains(msg, "pro_required") {
-		return fmt.Errorf("%s requires Pro / Power / MSP. See https://postvale.app/pricing", tool)
+		return fmt.Errorf("%s requires Pro / Power / MSP. See https://wiredepth.com/pricing", tool)
 	}
 	return fmt.Errorf("%s: %w", tool, err)
 }

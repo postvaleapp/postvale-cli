@@ -62,8 +62,8 @@ jobs:
       - name: integration tests (live API)
         env:
           POSTVALE_LIVE_TESTS: '1'
-          POSTVALE_TEST_API: https://postvale.app
-          POSTVALE_TEST_DOMAIN: postvale.app
+          WIREDEPTH_TEST_API: https://wiredepth.com
+          WIREDEPTH_TEST_DOMAIN: wiredepth.com
           POSTVALE_TEST_TOKEN: ${{ secrets.POSTVALE_TEST_TOKEN }}
         run: |
           if [ -z "$POSTVALE_TEST_TOKEN" ]; then

@@ -120,7 +120,7 @@ func (m VerifyPage) View() string {
 		"Re-computes the Merkle chain on a local JSONL export. Spec at",
 	))
 	b.WriteString("\n  " + StyleDim.Render(
-		"https://postvale.app/docs/verify · No Postvale login required.",
+		"https://wiredepth.com/docs/verify · No Postvale login required.",
 	))
 	b.WriteString("\n\n")
 

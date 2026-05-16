@@ -6,7 +6,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
-	"github.com/postvaleapp/postvale-cli/internal/api"
+	"github.com/WiredepthHQ/wiredepth-cli/internal/api"
 )
 
 // CvesPage shows CRITICAL + HIGH CVE matches against the tech stack
@@ -83,7 +83,7 @@ func (m CvesPage) View() string {
 		if strings.Contains(msg, "402") || strings.Contains(msg, "pro_required") {
 			b.WriteString("  " + StyleWarn.Render("Pro / Power / MSP required."))
 			b.WriteString("\n  " + StyleDim.Render(
-				"CVE monitoring is paywalled. Upgrade at https://postvale.app/pricing"))
+				"CVE monitoring is paywalled. Upgrade at https://wiredepth.com/pricing"))
 		} else {
 			b.WriteString("  " + StyleFail.Render("Could not load CVE findings:"))
 			b.WriteString("\n  " + StyleDim.Render(msg))

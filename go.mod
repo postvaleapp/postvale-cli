@@ -1,4 +1,4 @@
-module github.com/postvaleapp/postvale-cli
+module github.com/WiredepthHQ/wiredepth-cli
 
 go 1.24.2
 

@@ -9,9 +9,9 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/postvaleapp/postvale-cli/internal/api"
-	"github.com/postvaleapp/postvale-cli/internal/auth"
-	"github.com/postvaleapp/postvale-cli/internal/output"
+	"github.com/WiredepthHQ/wiredepth-cli/internal/api"
+	"github.com/WiredepthHQ/wiredepth-cli/internal/auth"
+	"github.com/WiredepthHQ/wiredepth-cli/internal/output"
 )
 
 func newAuthCommand() *cobra.Command {
@@ -34,10 +34,10 @@ func newAuthLoginCommand() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "login",
 		Short: "Open browser, approve a CLI token, store it locally",
-		Long: `Open postvale.app/cli-auth in your browser. After you sign in
-and click Allow, postvale.app mints a Bearer token and sends it
+		Long: `Open wiredepth.com/cli-auth in your browser. After you sign in
+and click Allow, wiredepth.com mints a Bearer token and sends it
 back to a one-shot listener on 127.0.0.1. The CLI stores the token
-in your OS keyring (or ~/.config/postvale/token on systems with no
+in your OS keyring (or ~/.config/wiredepth/token on systems with no
 keyring) and uses it for every subsequent call.
 
 Revoke from the Account page if you ever need to.`,
@@ -217,5 +217,5 @@ func defaultTokenLabel() string {
 	if host == "" {
 		host = "unknown"
 	}
-	return fmt.Sprintf("postvale-cli on %s (%s/%s)", host, runtime.GOOS, runtime.GOARCH)
+	return fmt.Sprintf("wd-cli on %s (%s/%s)", host, runtime.GOOS, runtime.GOARCH)
 }

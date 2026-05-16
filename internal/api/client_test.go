@@ -16,8 +16,8 @@ func TestNewRejectsBadURLs(t *testing.T) {
 		url  string
 	}{
 		{"empty", ""},
-		{"missing scheme", "postvale.app"},
-		{"ftp scheme", "ftp://postvale.app"},
+		{"missing scheme", "wiredepth.com"},
+		{"ftp scheme", "ftp://wiredepth.com"},
 		{"javascript scheme", "javascript:alert(1)"},
 		{"file scheme", "file:///etc/passwd"},
 	}
@@ -32,7 +32,7 @@ func TestNewRejectsBadURLs(t *testing.T) {
 }
 
 func TestNewAcceptsValidURLs(t *testing.T) {
-	for _, u := range []string{"http://localhost:3000", "https://postvale.app", "https://api.example.com:8443"} {
+	for _, u := range []string{"http://localhost:3000", "https://wiredepth.com", "https://api.example.com:8443"} {
 		if _, err := New(u, "", 5*time.Second); err != nil {
 			t.Fatalf("unexpected error for %q: %v", u, err)
 		}
@@ -75,7 +75,7 @@ func TestClientGetRoundTrip(t *testing.T) {
 		if r.Header.Get("Authorization") != "Bearer test-token" {
 			t.Errorf("missing or wrong Authorization header: %q", r.Header.Get("Authorization"))
 		}
-		if !strings.HasPrefix(r.Header.Get("User-Agent"), "postvale-cli/") {
+		if !strings.HasPrefix(r.Header.Get("User-Agent"), "wd-cli/") {
 			t.Errorf("unexpected User-Agent: %q", r.Header.Get("User-Agent"))
 		}
 		w.Header().Set("Content-Type", "application/json")

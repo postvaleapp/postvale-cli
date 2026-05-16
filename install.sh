@@ -2,7 +2,7 @@
 # Postvale CLI installer.
 #
 # Use:
-#   curl -fsSL https://postvale.app/install.sh | sh
+#   curl -fsSL https://wiredepth.com/install.sh | sh
 #
 # Picks the latest GitHub Release binary for the host's OS/arch,
 # verifies the checksum, drops the binary in /usr/local/bin (or
@@ -12,11 +12,11 @@
 #   POSTVALE_BIN_DIR   target directory (default /usr/local/bin)
 #   POSTVALE_VERSION   pin to a specific version (default latest)
 #
-# Source: https://github.com/postvaleapp/postvale-cli
+# Source: https://github.com/WiredepthHQ/wiredepth-cli
 
 set -eu
 
-REPO="postvaleapp/postvale-cli"
+REPO="WiredepthHQ/wiredepth-cli"
 BIN="postvale"
 BIN_DIR="${POSTVALE_BIN_DIR:-/usr/local/bin}"
 

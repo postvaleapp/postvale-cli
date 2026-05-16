@@ -6,7 +6,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
-	"github.com/postvaleapp/postvale-cli/internal/api"
+	"github.com/WiredepthHQ/wiredepth-cli/internal/api"
 )
 
 // AccountPage shows /me (email, tier, domain quota, admin flag) plus

@@ -14,7 +14,7 @@ returns:
 The CLI catches this and prints a one-liner pointing back at this
 file. Real options below, ordered by who has to act.
 
-## Operator side (you, the postvale.app admin)
+## Operator side (you, the wiredepth.com admin)
 
 This is the only fix that makes the CLI work for all your customers
 from cloud / CI environments. Two paths:
@@ -26,7 +26,7 @@ public check endpoints are explicitly designed to be hit by scripts;
 they have their own per-IP `freeBurstGate('cli-check')` rate limit,
 so dropping the bot challenge doesn't open the door to abuse.
 
-In the Cloudflare dashboard for postvale.app:
+In the Cloudflare dashboard for wiredepth.com:
 
 1. **Security -> WAF -> Custom rules -> Create rule**
 2. Name: "Skip bot challenge for /api/v1"

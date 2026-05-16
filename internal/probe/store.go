@@ -100,9 +100,9 @@ func configDir() (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("config dir: %w", err)
 	}
-	// Shares the postvale config dir with the user auth token, but a
-	// different filename so the two don't collide. Renaming the dir
-	// to 'wiredepth' is a separate migration (loud, touches every
-	// install).
-	return filepath.Join(base, "postvale"), nil
+	// Shares the wiredepth config dir with the user auth token, but a
+	// different filename so the two don't collide. Pre-rename installs
+	// kept this under 'postvale'; the auth store's legacyTokenFilePath
+	// path handles back-compat for that one piece of state.
+	return filepath.Join(base, "wiredepth"), nil
 }

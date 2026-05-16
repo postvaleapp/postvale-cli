@@ -7,9 +7,9 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/spf13/cobra"
 
-	"github.com/postvaleapp/postvale-cli/internal/api"
-	"github.com/postvaleapp/postvale-cli/internal/auth"
-	"github.com/postvaleapp/postvale-cli/internal/tui"
+	"github.com/WiredepthHQ/wiredepth-cli/internal/api"
+	"github.com/WiredepthHQ/wiredepth-cli/internal/auth"
+	"github.com/WiredepthHQ/wiredepth-cli/internal/tui"
 )
 
 func newTuiCommand() *cobra.Command {

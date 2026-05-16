@@ -6,7 +6,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
-	"github.com/postvaleapp/postvale-cli/internal/api"
+	"github.com/WiredepthHQ/wiredepth-cli/internal/api"
 )
 
 // CredentialLeaksPage shows breach-corpus findings scoped to addresses
@@ -85,7 +85,7 @@ func (m CredentialLeaksPage) View() string {
 		if strings.Contains(msg, "402") || strings.Contains(msg, "pro_required") {
 			b.WriteString("  " + StyleWarn.Render("Pro / Power / MSP required."))
 			b.WriteString("\n  " + StyleDim.Render(
-				"Breach-corpus monitoring is paywalled. Upgrade at https://postvale.app/pricing"))
+				"Breach-corpus monitoring is paywalled. Upgrade at https://wiredepth.com/pricing"))
 		} else {
 			b.WriteString("  " + StyleFail.Render("Could not load credential leaks:"))
 			b.WriteString("\n  " + StyleDim.Render(msg))

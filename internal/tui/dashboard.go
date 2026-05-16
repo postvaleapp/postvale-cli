@@ -13,7 +13,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
-	"github.com/postvaleapp/postvale-cli/internal/api"
+	"github.com/WiredepthHQ/wiredepth-cli/internal/api"
 )
 
 // view tracks which screen the user is currently on.

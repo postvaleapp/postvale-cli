@@ -12,10 +12,10 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/postvaleapp/postvale-cli/internal/output"
-	"github.com/postvaleapp/postvale-cli/internal/probe"
-	"github.com/postvaleapp/postvale-cli/internal/probe/checks"
-	"github.com/postvaleapp/postvale-cli/internal/version"
+	"github.com/WiredepthHQ/wiredepth-cli/internal/output"
+	"github.com/WiredepthHQ/wiredepth-cli/internal/probe"
+	"github.com/WiredepthHQ/wiredepth-cli/internal/probe/checks"
+	"github.com/WiredepthHQ/wiredepth-cli/internal/version"
 )
 
 func newProbeCommand() *cobra.Command {

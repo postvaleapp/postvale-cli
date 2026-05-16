@@ -7,7 +7,7 @@ import (
 
 	"github.com/charmbracelet/lipgloss"
 
-	"github.com/postvaleapp/postvale-cli/internal/api"
+	"github.com/WiredepthHQ/wiredepth-cli/internal/api"
 )
 
 func RenderFullCheck(w io.Writer, r *api.FullDomainCheck) {

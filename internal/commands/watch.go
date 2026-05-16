@@ -6,8 +6,8 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/postvaleapp/postvale-cli/internal/api"
-	"github.com/postvaleapp/postvale-cli/internal/output"
+	"github.com/WiredepthHQ/wiredepth-cli/internal/api"
+	"github.com/WiredepthHQ/wiredepth-cli/internal/output"
 )
 
 func newWatchCommand() *cobra.Command {

@@ -1,4 +1,4 @@
-// Postvale CLI entry point. All command logic lives in
+// wd - WireDepth CLI entry point. Command logic lives in
 // internal/commands.
 package main
 
@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/postvaleapp/postvale-cli/internal/commands"
+	"github.com/WiredepthHQ/wiredepth-cli/internal/commands"
 )
 
 func main() {

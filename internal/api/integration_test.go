@@ -6,12 +6,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/postvaleapp/postvale-cli/internal/api"
-	"github.com/postvaleapp/postvale-cli/internal/output"
+	"github.com/WiredepthHQ/wiredepth-cli/internal/api"
+	"github.com/WiredepthHQ/wiredepth-cli/internal/output"
 )
 
 // Integration test for every check tool exposed by the CLI. Hits the
-// live API at $POSTVALE_TEST_API (default https://postvale.app) and
+// live API at $WIREDEPTH_TEST_API (default https://wiredepth.com) and
 // asserts that the response decodes into the Go struct + the matching
 // output renderer produces non-empty bytes.
 //
@@ -30,13 +30,13 @@ func TestIntegration_CheckTools(t *testing.T) {
 		t.Skip("set POSTVALE_LIVE_TESTS=1 to run live API tests")
 	}
 
-	apiBase := os.Getenv("POSTVALE_TEST_API")
+	apiBase := os.Getenv("WIREDEPTH_TEST_API")
 	if apiBase == "" {
-		apiBase = "https://postvale.app"
+		apiBase = "https://wiredepth.com"
 	}
-	domain := os.Getenv("POSTVALE_TEST_DOMAIN")
+	domain := os.Getenv("WIREDEPTH_TEST_DOMAIN")
 	if domain == "" {
-		domain = "postvale.app"
+		domain = "wiredepth.com"
 	}
 	token := os.Getenv("POSTVALE_TEST_TOKEN") // optional, only needed for authed routes
 
@@ -234,9 +234,9 @@ func TestIntegration_MonitoringEndpoints(t *testing.T) {
 	if token == "" {
 		t.Skip("set POSTVALE_TEST_TOKEN to run authenticated tests")
 	}
-	apiBase := os.Getenv("POSTVALE_TEST_API")
+	apiBase := os.Getenv("WIREDEPTH_TEST_API")
 	if apiBase == "" {
-		apiBase = "https://postvale.app"
+		apiBase = "https://wiredepth.com"
 	}
 
 	client, err := api.New(apiBase, token, 60*time.Second)

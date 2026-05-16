@@ -13,18 +13,20 @@ import (
 )
 
 const (
-	keyringService = "postvale-cli"
-	keyringUser    = "default"
-	envOverride    = "POSTVALE_TOKEN"
+	keyringService    = "wiredepth-cli"
+	keyringServiceOld = "postvale-cli"
+	keyringUser       = "default"
+	envOverride       = "WIREDEPTH_TOKEN"
+	envOverrideOld    = "POSTVALE_TOKEN"
 )
 
 // Errors callers can match against.
 var (
-	ErrNotLoggedIn = errors.New("not logged in (run `postvale auth login`)")
+	ErrNotLoggedIn = errors.New("not logged in (run `wd auth login`)")
 )
 
 // Save writes the token to the OS keyring. Falls back to a 0600 file
-// in ~/.config/postvale/ when the keyring isn't available (CI hosts,
+// in ~/.config/wiredepth/ when the keyring isn't available (CI hosts,
 // stripped Linux images, headless boxes).
 func Save(token string) error {
 	if err := keyring.Set(keyringService, keyringUser, token); err == nil {
@@ -34,13 +36,20 @@ func Save(token string) error {
 }
 
 // Load returns the stored token. Checks the env var first so CI use
-// (POSTVALE_TOKEN=abc postvale check ...) doesn't need a stored
-// credential at all.
+// (WIREDEPTH_TOKEN=abc wd check ...) doesn't need a stored credential
+// at all. Legacy keyring service + env var are read as fallback so
+// users mid-rename don't get logged out.
 func Load() (string, error) {
 	if v := strings.TrimSpace(os.Getenv(envOverride)); v != "" {
 		return v, nil
 	}
+	if v := strings.TrimSpace(os.Getenv(envOverrideOld)); v != "" {
+		return v, nil
+	}
 	if v, err := keyring.Get(keyringService, keyringUser); err == nil && v != "" {
+		return v, nil
+	}
+	if v, err := keyring.Get(keyringServiceOld, keyringUser); err == nil && v != "" {
 		return v, nil
 	}
 	v, err := fileLoad()
@@ -53,22 +62,29 @@ func Load() (string, error) {
 	return v, nil
 }
 
-// Delete removes any stored token. Idempotent.
+// Delete removes any stored token. Idempotent. Wipes the legacy
+// keyring entry too so a user mid-rename doesn't leave a dangling
+// credential behind.
 func Delete() error {
-	// Try keyring first; ignore "not found" style errors.
 	_ = keyring.Delete(keyringService, keyringUser)
-	// Always try the file path too in case both happen to exist.
+	_ = keyring.Delete(keyringServiceOld, keyringUser)
 	if path, err := tokenFilePath(); err == nil {
+		_ = os.Remove(path)
+	}
+	if path, err := legacyTokenFilePath(); err == nil {
 		_ = os.Remove(path)
 	}
 	return nil
 }
 
 // StorageLocation describes where the token currently lives. Useful
-// for `postvale auth whoami` to surface "keyring" vs "file fallback".
+// for `wd auth whoami` to surface "keyring" vs "file fallback".
 func StorageLocation() string {
 	if v := strings.TrimSpace(os.Getenv(envOverride)); v != "" {
 		return "env (" + envOverride + ")"
+	}
+	if v := strings.TrimSpace(os.Getenv(envOverrideOld)); v != "" {
+		return "env (" + envOverrideOld + ", legacy)"
 	}
 	if _, err := keyring.Get(keyringService, keyringUser); err == nil {
 		switch runtime.GOOS {
@@ -80,9 +96,17 @@ func StorageLocation() string {
 			return "libsecret / DBus keyring"
 		}
 	}
+	if _, err := keyring.Get(keyringServiceOld, keyringUser); err == nil {
+		return "(legacy keyring entry, run `wd auth login` to migrate)"
+	}
 	if path, err := tokenFilePath(); err == nil {
 		if _, err := os.Stat(path); err == nil {
 			return path
+		}
+	}
+	if path, err := legacyTokenFilePath(); err == nil {
+		if _, err := os.Stat(path); err == nil {
+			return path + " (legacy)"
 		}
 	}
 	return "(not stored)"
@@ -103,7 +127,18 @@ func configDir() (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("config dir: %w", err)
 	}
-	return filepath.Join(base, "postvale"), nil
+	return filepath.Join(base, "wiredepth"), nil
+}
+
+// legacyTokenFilePath points at the pre-rename ~/.config/postvale/
+// token location. Read-only fallback so users keep working through
+// the rename window without re-authing.
+func legacyTokenFilePath() (string, error) {
+	base, err := os.UserConfigDir()
+	if err != nil {
+		return "", fmt.Errorf("config dir: %w", err)
+	}
+	return filepath.Join(base, "postvale", "token"), nil
 }
 
 func fileSave(token string) error {
@@ -129,13 +164,16 @@ func fileSave(token string) error {
 }
 
 func fileLoad() (string, error) {
-	path, err := tokenFilePath()
-	if err != nil {
-		return "", err
+	if path, err := tokenFilePath(); err == nil {
+		if data, err := os.ReadFile(path); err == nil {
+			return strings.TrimSpace(string(data)), nil
+		}
 	}
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return "", err
+	// Legacy ~/.config/postvale/token fallback for the rename window.
+	if path, err := legacyTokenFilePath(); err == nil {
+		if data, err := os.ReadFile(path); err == nil {
+			return strings.TrimSpace(string(data)), nil
+		}
 	}
-	return strings.TrimSpace(string(data)), nil
+	return "", os.ErrNotExist
 }

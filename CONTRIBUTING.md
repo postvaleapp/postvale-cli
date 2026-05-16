@@ -5,7 +5,7 @@ Thanks for the interest! A few things to know before opening a PR.
 ## Local dev
 
 ```sh
-git clone https://github.com/postvaleapp/postvale-cli.git
+git clone https://github.com/WiredepthHQ/wiredepth-cli.git
 cd postvale-cli
 go build ./...
 go test ./...
@@ -18,7 +18,7 @@ Go 1.24+ required.
 
 ```
 cmd/postvale/        Entry point - main.go only
-internal/api/        HTTP client to postvale.app + typed response shapes
+internal/api/        HTTP client to wiredepth.com + typed response shapes
 internal/commands/   Cobra command tree (one file per subcommand)
 internal/output/     Lipgloss styles + per-check renderers + JSON
 internal/version/    Build stamps (overridden via -ldflags at release)

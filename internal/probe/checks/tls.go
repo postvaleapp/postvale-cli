@@ -12,7 +12,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/postvaleapp/postvale-cli/internal/probe"
+	"github.com/WiredepthHQ/wiredepth-cli/internal/probe"
 )
 
 // Expiry-warning thresholds. Mirror the cloud-side TLS check so an

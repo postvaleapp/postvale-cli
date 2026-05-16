@@ -1,4 +1,4 @@
-// Package api is the HTTP client for postvale.app. All command code
+// Package api is the HTTP client for wiredepth.com. All command code
 // goes through this package so auth, retries, and UA stamping live
 // in one place.
 package api
@@ -13,7 +13,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/postvaleapp/postvale-cli/internal/version"
+	"github.com/WiredepthHQ/wiredepth-cli/internal/version"
 )
 
 // 8 MiB ceiling on any single response body. Bounds memory if the
@@ -45,11 +45,11 @@ func New(baseURL, token string, timeout time.Duration) (*Client, error) {
 }
 
 func userAgent() string {
-	return fmt.Sprintf("postvale-cli/%s (+https://github.com/postvaleapp/postvale-cli)", version.Version)
+	return fmt.Sprintf("wd-cli/%s (+https://github.com/WiredepthHQ/wiredepth-cli)", version.Version)
 }
 
 // BaseURL returns the configured API base as a string, e.g.
-// "https://postvale.app". Useful for callers that need to build
+// "https://wiredepth.com". Useful for callers that need to build
 // dashboard URLs to hand to the user's browser.
 func (c *Client) BaseURL() string {
 	return c.base.String()
@@ -139,9 +139,9 @@ func (e *HTTPError) Error() string {
 		return fmt.Sprintf(
 			"api: %s for %s: blocked by Cloudflare bot-challenge "+
 				"(your IP is on a list of datacenter / CI / VPN ranges Cloudflare auto-challenges). "+
-				"This is a network policy on postvale.app, not a Postvale-server error. "+
+				"This is a network policy on wiredepth.com, not a Postvale-server error. "+
 				"If you're hitting this from CI or a cloud VM, see "+
-				"https://postvale.app/docs/cloudflare-bypass for the operator-side fix.",
+				"https://wiredepth.com/docs/cloudflare-bypass for the operator-side fix.",
 			e.Status, e.URL,
 		)
 	}

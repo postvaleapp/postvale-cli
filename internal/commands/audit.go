@@ -16,11 +16,11 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/postvaleapp/postvale-cli/internal/auth"
+	"github.com/WiredepthHQ/wiredepth-cli/internal/auth"
 )
 
 // `postvale audit` is the local-verification toolkit for the audit-log
-// Merkle chain documented at https://postvale.app/docs/verify. Two
+// Merkle chain documented at https://wiredepth.com/docs/verify. Two
 // subcommands today: `export` pulls the caller's chain segment, and
 // `verify` re-hashes a JSONL file (no Postvale account required to
 // run verify; the algorithm is public).
@@ -115,7 +115,7 @@ func newAuditVerifyCommand() *cobra.Command {
 		Use:   "verify <file.jsonl>",
 		Short: "Re-compute the Merkle chain on a local export",
 		Long: `Verifies a local audit-chain export against the published spec
-at https://postvale.app/docs/verify. No Postvale account required.
+at https://wiredepth.com/docs/verify. No Postvale account required.
 
   postvale audit verify chain.jsonl
   postvale audit verify chain.jsonl --anchor <hex>

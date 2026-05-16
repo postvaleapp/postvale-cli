@@ -1,10 +1,35 @@
 # Changelog
 
-All notable changes to the Postvale CLI are documented here. Format
+All notable changes to the WireDepth CLI are documented here. Format
 follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 versioning follows [SemVer](https://semver.org/).
 
-## [Unreleased]
+## [Unreleased] - v2.0 surface rename
+
+### Changed
+- **Binary renamed**: entry point is now `wd` (was `postvale`). The
+  Go module is `github.com/WiredepthHQ/wiredepth-cli`; the binary
+  lives at `cmd/wd/`.
+- **Env vars renamed**: `WIREDEPTH_API` + `WIREDEPTH_TOKEN` are the
+  new names. Legacy `POSTVALE_API` + `POSTVALE_TOKEN` are still
+  read as fallback through v2.2; dropped in v2.3.
+- **Keyring service renamed**: new tokens write under `wiredepth-cli`.
+  Legacy `postvale-cli` keyring entries are read as fallback so
+  existing logins don't break.
+- **Config dir renamed**: `~/.config/wiredepth/` (was
+  `~/.config/postvale/`). Legacy path read as fallback.
+- **API base default**: `https://wiredepth.com` (was `https://postvale.app`).
+- **User-Agent**: `wd-cli/<version>` (was `postvale-cli/<version>`).
+
+### Added
+- `internal/telemetry/`: scaffolding for opt-in CLI usage metrics.
+  Off by default; the API endpoint + privacy-explainer landing
+  ship in v2.0.x. See `docs/v2-migration.md` for the data model.
+- `docs/v2-migration.md`: the full v2 migration plan (this rename
+  is Phase 1; verb-group restructure is v2.1; AI surface v2.2;
+  TUI mode + legacy fallback removal v2.3).
+
+## [Pre-rename releases]
 
 ### Added
 - Initial scaffold: cobra command tree, Lipgloss output, base API client

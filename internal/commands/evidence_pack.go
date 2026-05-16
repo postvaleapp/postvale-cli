@@ -9,7 +9,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/postvaleapp/postvale-cli/internal/auth"
+	"github.com/WiredepthHQ/wiredepth-cli/internal/auth"
 )
 
 // `postvale evidence-pack <framework> <domain>` - Prove-tier feature.
@@ -30,7 +30,7 @@ Enterprise, which bundles Prove).
 
   postvale evidence-pack osfi-b-13 acme.com -o pack.zip
 
-Frameworks: any slug listed at https://postvale.app/compliance,
+Frameworks: any slug listed at https://wiredepth.com/compliance,
 e.g. osfi-b-13, soc-2, pci-dss, hipaa-security-rule, iso-27001,
 fedramp, irap, nis2, dora, sec-cybersecurity-disclosure,
 nydfs-part-500, pipeda, quebec-law-25, ni-52-109, glba, stateramp,

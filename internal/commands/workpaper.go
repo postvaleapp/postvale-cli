@@ -8,7 +8,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/postvaleapp/postvale-cli/internal/output"
+	"github.com/WiredepthHQ/wiredepth-cli/internal/output"
 )
 
 // Allowed workpaper types. Mirrors the webapp's WORKPAPER_REFS map

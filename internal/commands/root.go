@@ -6,7 +6,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/postvaleapp/postvale-cli/internal/version"
+	"github.com/WiredepthHQ/wiredepth-cli/internal/version"
 )
 
 // Persistent flag values, populated by cobra before RunE fires.
@@ -29,12 +29,12 @@ func Globals() *GlobalFlags { return &globals }
 // package-level) so tests can spin one up per case.
 func NewRootCommand() *cobra.Command {
 	root := &cobra.Command{
-		Use:   "postvale",
-		Short: "Domain posture + email security checks from the terminal",
-		Long: `Postvale CLI. TLS, DMARC, DNS, threat-intel, and audit
-evidence for any public domain.
+		Use:   "wd",
+		Short: "WireDepth EASM checks + monitoring from the terminal",
+		Long: `WireDepth CLI. External attack surface monitoring,
+TLS / DMARC / DNS posture, threat intel, audit-chain evidence packs.
 
-Free read-only checks need no sign-in. Sign in with ` + "`postvale auth login`" + `
+Free read-only checks need no sign-in. Sign in with ` + "`wd auth login`" + `
 for monitoring, workpapers, and Pro features.
 
 Designed for the terminal AND for CI. Use --json for machine output
@@ -44,14 +44,14 @@ and --exit-on-fail to gate deploys on posture grades.`,
 	}
 
 	pf := root.PersistentFlags()
-	pf.StringVar(&globals.APIBase, "api", "", "Postvale API base URL (default https://postvale.app)")
+	pf.StringVar(&globals.APIBase, "api", "", "WireDepth API base URL (default https://wiredepth.com)")
 	pf.StringVar(&globals.Token, "token", "", "API token (overrides stored credential)")
 	pf.BoolVar(&globals.JSON, "json", false, "Output structured JSON instead of pretty text")
 	pf.BoolVarP(&globals.Quiet, "quiet", "q", false, "Suppress non-essential output")
 	pf.BoolVar(&globals.NoColor, "no-color", false, "Disable ANSI colors (auto-disabled on non-TTY)")
 	pf.BoolVar(&globals.ExitOnFail, "exit-on-fail", false, "Exit 1 when the result indicates a failing posture")
 	pf.IntVar(&globals.Timeout, "timeout", 30, "Per-request timeout in seconds")
-	pf.StringVar(&globals.ConfigPath, "config", "", "Path to config file (default ~/.config/postvale/config.yaml)")
+	pf.StringVar(&globals.ConfigPath, "config", "", "Path to config file (default ~/.config/wiredepth/config.yaml)")
 
 	root.PersistentPreRun = func(_ *cobra.Command, _ []string) {
 		resolveGlobals()
@@ -97,16 +97,22 @@ and --exit-on-fail to gate deploys on posture grades.`,
 }
 
 // Fills empty global-flag values from env vars. Flag > env > default.
+// New env vars are WIREDEPTH_*; legacy POSTVALE_* read as fallback so
+// existing CI pipelines continue to work through the rename window.
 func resolveGlobals() {
 	if globals.APIBase == "" {
-		if v := os.Getenv("POSTVALE_API"); v != "" {
+		if v := os.Getenv("WIREDEPTH_API"); v != "" {
+			globals.APIBase = v
+		} else if v := os.Getenv("POSTVALE_API"); v != "" {
 			globals.APIBase = v
 		} else {
-			globals.APIBase = "https://postvale.app"
+			globals.APIBase = "https://wiredepth.com"
 		}
 	}
 	if globals.Token == "" {
-		if v := os.Getenv("POSTVALE_TOKEN"); v != "" {
+		if v := os.Getenv("WIREDEPTH_TOKEN"); v != "" {
+			globals.Token = v
+		} else if v := os.Getenv("POSTVALE_TOKEN"); v != "" {
 			globals.Token = v
 		}
 	}
@@ -121,7 +127,7 @@ func newVersionCommand() *cobra.Command {
 		Use:   "version",
 		Short: "Print the CLI version",
 		Run: func(cmd *cobra.Command, _ []string) {
-			cmd.Printf("postvale %s (commit %s, built %s)\n",
+			cmd.Printf("wd %s (commit %s, built %s)\n",
 				version.Version, version.Commit, version.Date)
 		},
 	}
