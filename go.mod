@@ -1,4 +1,4 @@
-module github.com/WiredepthHQ/wiredepth-cli
+module github.com/WiredepthHQ/cli
 
 go 1.24.2
 

@@ -14,7 +14,7 @@ const (
 	tokenFile   = "probe.token"
 )
 
-var ErrNoToken = errors.New("no probe token configured (run `postvale probe enroll`)")
+var ErrNoToken = errors.New("no probe token configured (run `wd probe enroll`)")
 
 // LoadToken returns the probe token. Env wins, then file.
 func LoadToken() (string, error) {

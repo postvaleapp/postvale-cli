@@ -6,8 +6,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/WiredepthHQ/wiredepth-cli/internal/api"
-	"github.com/WiredepthHQ/wiredepth-cli/internal/output"
+	"github.com/WiredepthHQ/cli/internal/api"
+	"github.com/WiredepthHQ/cli/internal/output"
 )
 
 // Integration test for every check tool exposed by the CLI. Hits the

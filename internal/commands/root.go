@@ -6,7 +6,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/WiredepthHQ/wiredepth-cli/internal/version"
+	"github.com/WiredepthHQ/cli/internal/version"
 )
 
 // Persistent flag values, populated by cobra before RunE fires.

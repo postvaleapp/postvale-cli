@@ -12,10 +12,10 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/WiredepthHQ/wiredepth-cli/internal/output"
-	"github.com/WiredepthHQ/wiredepth-cli/internal/probe"
-	"github.com/WiredepthHQ/wiredepth-cli/internal/probe/checks"
-	"github.com/WiredepthHQ/wiredepth-cli/internal/version"
+	"github.com/WiredepthHQ/cli/internal/output"
+	"github.com/WiredepthHQ/cli/internal/probe"
+	"github.com/WiredepthHQ/cli/internal/probe/checks"
+	"github.com/WiredepthHQ/cli/internal/version"
 )
 
 func newProbeCommand() *cobra.Command {
@@ -51,7 +51,7 @@ func newProbeEnrollCommand() *cobra.Command {
 
 Get a token from /account/probes on the WireDepth dashboard. The
 token is shown exactly once; save it then. This command stores it
-locally so ` + "`postvale probe run`" + ` can pick it up.
+locally so ` + "`wd probe run`" + ` can pick it up.
 
 Examples:
   postvale probe enroll wdp_abc_xxxxxxxx
@@ -100,7 +100,7 @@ for pending work, run the allowed check kinds, and submit findings.
 
 Long-lived process. Wrap in systemd / launchd / Windows Service for
 production use. Reads the token from $WIREDEPTH_PROBE_TOKEN or the
-config file written by ` + "`postvale probe enroll`" + `.`,
+config file written by ` + "`wd probe enroll`" + `.`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			g := Globals()

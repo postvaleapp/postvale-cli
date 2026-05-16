@@ -16,10 +16,10 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/WiredepthHQ/wiredepth-cli/internal/auth"
+	"github.com/WiredepthHQ/cli/internal/auth"
 )
 
-// `postvale audit` is the local-verification toolkit for the audit-log
+// `wd audit` is the local-verification toolkit for the audit-log
 // Merkle chain documented at https://wiredepth.com/docs/verify. Two
 // subcommands today: `export` pulls the caller's chain segment, and
 // `verify` re-hashes a JSONL file (no Postvale account required to
@@ -55,7 +55,7 @@ or to a file.
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			if _, err := auth.Load(); err != nil && Globals().Token == "" {
 				if errors.Is(err, auth.ErrNotLoggedIn) {
-					return fmt.Errorf("not signed in - run `postvale auth login` first")
+					return fmt.Errorf("not signed in - run `wd auth login` first")
 				}
 				return err
 			}

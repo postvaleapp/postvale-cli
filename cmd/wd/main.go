@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/WiredepthHQ/wiredepth-cli/internal/commands"
+	"github.com/WiredepthHQ/cli/internal/commands"
 )
 
 func main() {

@@ -51,12 +51,12 @@ curl -fsSL https://wiredepth.com/install.sh | sh
 
 ### Go
 ```sh
-go install github.com/WiredepthHQ/wiredepth-cli/cmd/wd@latest
+go install github.com/WiredepthHQ/cli/cmd/wd@latest
 ```
 
 ### Direct download
 Pre-built binaries for `linux`, `darwin`, `windows` × `amd64` / `arm64`
-are on the [releases page](https://github.com/WiredepthHQ/wiredepth-cli/releases).
+are on the [releases page](https://github.com/WiredepthHQ/cli/releases).
 
 ## Quick start
 

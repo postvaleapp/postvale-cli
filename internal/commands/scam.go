@@ -8,7 +8,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/WiredepthHQ/wiredepth-cli/internal/output"
+	"github.com/WiredepthHQ/cli/internal/output"
 )
 
 // 10 MiB ceiling on the email blob sent to the API.

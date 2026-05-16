@@ -1,4 +1,4 @@
-// Package tui implements the `postvale tui` interactive dashboard.
+// Package tui implements the `wd tui` interactive dashboard.
 package tui
 
 import (
@@ -13,7 +13,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
-	"github.com/WiredepthHQ/wiredepth-cli/internal/api"
+	"github.com/WiredepthHQ/cli/internal/api"
 )
 
 // view tracks which screen the user is currently on.
@@ -301,7 +301,7 @@ func (m Model) renderFooter() string {
 
 func (m Model) renderList() string {
 	if len(m.domains) == 0 {
-		return "\n  " + StyleDim.Render("No monitored domains yet. Add one with `postvale watch add <domain>`.") + "\n"
+		return "\n  " + StyleDim.Render("No monitored domains yet. Add one with `wd watch add <domain>`.") + "\n"
 	}
 	return "\n" + m.tbl.View()
 }

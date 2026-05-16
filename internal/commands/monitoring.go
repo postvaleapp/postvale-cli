@@ -9,12 +9,12 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/WiredepthHQ/wiredepth-cli/internal/api"
-	"github.com/WiredepthHQ/wiredepth-cli/internal/auth"
+	"github.com/WiredepthHQ/cli/internal/api"
+	"github.com/WiredepthHQ/cli/internal/auth"
 )
 
-// `postvale brand`, `postvale leaks`, `postvale creds`, `postvale
-// vendors-monitor`, `postvale cves` - one-shot CLI versions of the
+// `wd brand`, `wd leaks`, `wd creds`, `postvale
+// vendors-monitor`, `wd cves` - one-shot CLI versions of the
 // five Pro+ TUI monitoring tabs. Each wraps the matching api.Client
 // method, supports --json for machine output, and human-renders a
 // compact table by default. Aliases match the catalog slugs so muscle
@@ -266,7 +266,7 @@ func newCvesCommand() *cobra.Command {
 func authClient() (*api.Client, error) {
 	if _, err := auth.Load(); err != nil && Globals().Token == "" {
 		if errors.Is(err, auth.ErrNotLoggedIn) {
-			return nil, fmt.Errorf("not signed in - run `postvale auth login` first")
+			return nil, fmt.Errorf("not signed in - run `wd auth login` first")
 		}
 		return nil, err
 	}

@@ -7,9 +7,9 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/spf13/cobra"
 
-	"github.com/WiredepthHQ/wiredepth-cli/internal/api"
-	"github.com/WiredepthHQ/wiredepth-cli/internal/auth"
-	"github.com/WiredepthHQ/wiredepth-cli/internal/tui"
+	"github.com/WiredepthHQ/cli/internal/api"
+	"github.com/WiredepthHQ/cli/internal/auth"
+	"github.com/WiredepthHQ/cli/internal/tui"
 )
 
 func newNocCommand() *cobra.Command {
@@ -34,7 +34,7 @@ Equivalent to: postvale tui --page noc`,
 			}
 			if _, err := auth.Load(); err != nil && Globals().Token == "" {
 				if errors.Is(err, auth.ErrNotLoggedIn) {
-					return fmt.Errorf("not signed in - run `postvale auth login` first")
+					return fmt.Errorf("not signed in - run `wd auth login` first")
 				}
 				return err
 			}
@@ -45,7 +45,7 @@ Equivalent to: postvale tui --page noc`,
 			if _, err := client.Me(); err != nil {
 				if api.IsAuthError(err) {
 					return fmt.Errorf("the stored token was rejected by the server " +
-						"(revoked, expired, or password changed). Run `postvale auth login` to re-authenticate")
+						"(revoked, expired, or password changed). Run `wd auth login` to re-authenticate")
 				}
 				return fmt.Errorf("could not reach api: %w", err)
 			}

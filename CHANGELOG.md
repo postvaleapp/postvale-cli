@@ -8,7 +8,7 @@ versioning follows [SemVer](https://semver.org/).
 
 ### Changed
 - **Binary renamed**: entry point is now `wd` (was `postvale`). The
-  Go module is `github.com/WiredepthHQ/wiredepth-cli`; the binary
+  Go module is `github.com/WiredepthHQ/cli`; the binary
   lives at `cmd/wd/`.
 - **Env vars renamed**: `WIREDEPTH_API` + `WIREDEPTH_TOKEN` are the
   new names. Legacy `POSTVALE_API` + `POSTVALE_TOKEN` are still

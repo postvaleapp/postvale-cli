@@ -9,10 +9,10 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/WiredepthHQ/wiredepth-cli/internal/auth"
+	"github.com/WiredepthHQ/cli/internal/auth"
 )
 
-// `postvale evidence-pack <framework> <domain>` - Prove-tier feature.
+// `wd evidence-pack <framework> <domain>` - Prove-tier feature.
 // Downloads /api/v1/evidence-pack/<framework>/<domain> as a ZIP of all
 // five workpapers + a README. Server runs the checks live + renders
 // the PDFs; no persistence.
@@ -44,7 +44,7 @@ cmmc, au-privacy-act, osfi-e-21, apra-cps-234, apra-cps-230.`,
 			}
 			if _, err := auth.Load(); err != nil && Globals().Token == "" {
 				if errors.Is(err, auth.ErrNotLoggedIn) {
-					return fmt.Errorf("not signed in - run `postvale auth login` first")
+					return fmt.Errorf("not signed in - run `wd auth login` first")
 				}
 				return err
 			}

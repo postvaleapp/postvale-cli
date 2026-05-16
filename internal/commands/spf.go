@@ -5,10 +5,10 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/WiredepthHQ/wiredepth-cli/internal/output"
+	"github.com/WiredepthHQ/cli/internal/output"
 )
 
-// `postvale spf flatten <domain>` mirrors the web tool. We group
+// `wd spf flatten <domain>` mirrors the web tool. We group
 // SPF subcommands under a parent so room exists for spf validate /
 // spf generate later.
 func newSpfCommand() *cobra.Command {

@@ -8,7 +8,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/WiredepthHQ/wiredepth-cli/internal/output"
+	"github.com/WiredepthHQ/cli/internal/output"
 )
 
 // Allowed workpaper types. Mirrors the webapp's WORKPAPER_REFS map

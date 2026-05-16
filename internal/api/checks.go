@@ -861,7 +861,7 @@ type CliRevokeResp struct {
 }
 
 // CliRevoke flips revokedAt on the API key carrying the current
-// request. Used by `postvale auth logout --remote`.
+// request. Used by `wd auth logout --remote`.
 func (c *Client) CliRevoke() (*CliRevokeResp, error) {
 	var out CliRevokeResp
 	if err := c.post("/api/v1/cli/revoke", nil, &out); err != nil {

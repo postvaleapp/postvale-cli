@@ -6,7 +6,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
-	"github.com/WiredepthHQ/wiredepth-cli/internal/api"
+	"github.com/WiredepthHQ/cli/internal/api"
 )
 
 // VendorWatchPage shows the caller's vendor subscriptions + the most

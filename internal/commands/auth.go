@@ -9,9 +9,9 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/WiredepthHQ/wiredepth-cli/internal/api"
-	"github.com/WiredepthHQ/wiredepth-cli/internal/auth"
-	"github.com/WiredepthHQ/wiredepth-cli/internal/output"
+	"github.com/WiredepthHQ/cli/internal/api"
+	"github.com/WiredepthHQ/cli/internal/auth"
+	"github.com/WiredepthHQ/cli/internal/output"
 )
 
 func newAuthCommand() *cobra.Command {
@@ -19,9 +19,9 @@ func newAuthCommand() *cobra.Command {
 		Use:   "auth",
 		Short: "Manage CLI authentication",
 		Long: `Manage the Bearer token the CLI uses for Pro features:
-  postvale auth login    Open browser, mint a token, store it
-  postvale auth logout   Forget the stored token (local only)
-  postvale auth whoami   Show who's signed in + plan`,
+  wd auth login    Open browser, mint a token, store it
+  wd auth logout   Forget the stored token (local only)
+  wd auth whoami   Show who's signed in + plan`,
 	}
 	cmd.AddCommand(newAuthLoginCommand())
 	cmd.AddCommand(newAuthLogoutCommand())
@@ -180,7 +180,7 @@ func newAuthWhoamiCommand() *cobra.Command {
 				if err != nil {
 					if errors.Is(err, auth.ErrNotLoggedIn) {
 						fmt.Fprintln(cmd.ErrOrStderr(), output.StyleDim.Render(
-							"Not signed in. Run `postvale auth login`.",
+							"Not signed in. Run `wd auth login`.",
 						))
 						os.Exit(1)
 					}

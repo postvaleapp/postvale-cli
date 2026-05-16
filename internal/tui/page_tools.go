@@ -11,15 +11,15 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
-	"github.com/WiredepthHQ/wiredepth-cli/internal/api"
-	"github.com/WiredepthHQ/wiredepth-cli/internal/output"
+	"github.com/WiredepthHQ/cli/internal/api"
+	"github.com/WiredepthHQ/cli/internal/output"
 )
 
 var stylePlain = lipgloss.NewStyle()
 
 // ToolsPage is a categorised browser for the free tools. Pick a tool,
 // type a domain, hit enter, see the same output as the standalone
-// subcommand (`postvale tls acme.com` etc.) in a scrollable viewport.
+// subcommand (`wd tls acme.com` etc.) in a scrollable viewport.
 
 type toolEntry struct {
 	id    string

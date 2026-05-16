@@ -69,7 +69,7 @@ func LoginViaBrowser(apiBase, label string, timeout time.Duration) (*LoopbackRes
 			return
 		}
 		if !safeEq(gotState, state) {
-			writeBrowserPage(w, false, "State mismatch. The CLI rejected the response. Re-run `postvale auth login`.")
+			writeBrowserPage(w, false, "State mismatch. The CLI rejected the response. Re-run `wd auth login`.")
 			errCh <- errors.New("state mismatch")
 			return
 		}
@@ -178,7 +178,7 @@ func writeBrowserPage(w http.ResponseWriter, ok bool, message string) {
 	body := "You're signed in to the Postvale CLI. You can close this tab."
 	if !ok {
 		title = "Sign-in failed"
-		body = "Something went wrong: " + html.EscapeString(message) + ". Re-run `postvale auth login` from your terminal."
+		body = "Something went wrong: " + html.EscapeString(message) + ". Re-run `wd auth login` from your terminal."
 	}
 	_, _ = fmt.Fprintf(w, `<!doctype html>
 <html lang="en">

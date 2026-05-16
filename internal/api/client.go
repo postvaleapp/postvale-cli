@@ -13,7 +13,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/WiredepthHQ/wiredepth-cli/internal/version"
+	"github.com/WiredepthHQ/cli/internal/version"
 )
 
 // 8 MiB ceiling on any single response body. Bounds memory if the
@@ -45,7 +45,7 @@ func New(baseURL, token string, timeout time.Duration) (*Client, error) {
 }
 
 func userAgent() string {
-	return fmt.Sprintf("wd-cli/%s (+https://github.com/WiredepthHQ/wiredepth-cli)", version.Version)
+	return fmt.Sprintf("wd-cli/%s (+https://github.com/WiredepthHQ/cli)", version.Version)
 }
 
 // BaseURL returns the configured API base as a string, e.g.

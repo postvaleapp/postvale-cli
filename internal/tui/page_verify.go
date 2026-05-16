@@ -12,7 +12,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 )
 
-// VerifyPage is a wizard around `postvale audit verify`. Text input
+// VerifyPage is a wizard around `wd audit verify`. Text input
 // for the JSONL export path, optional --fetch-anchor toggle, runs the
 // binary in a subprocess + renders the captured output.
 

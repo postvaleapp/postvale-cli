@@ -5,7 +5,7 @@ Thanks for the interest! A few things to know before opening a PR.
 ## Local dev
 
 ```sh
-git clone https://github.com/WiredepthHQ/wiredepth-cli.git
+git clone https://github.com/WiredepthHQ/cli.git
 cd postvale-cli
 go build ./...
 go test ./...

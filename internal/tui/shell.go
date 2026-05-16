@@ -7,10 +7,10 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
-	"github.com/WiredepthHQ/wiredepth-cli/internal/api"
+	"github.com/WiredepthHQ/cli/internal/api"
 )
 
-// Shell is the top-level Model for `postvale tui`. Owns the sidebar,
+// Shell is the top-level Model for `wd tui`. Owns the sidebar,
 // the header line, and the registry of mounted page Models. Routes
 // keystrokes to the focused element (sidebar OR active page).
 
@@ -118,7 +118,7 @@ type Shell struct {
 }
 
 // NewShell constructs the shell. start is the page rendered first.
-// `postvale tui` opens on PageDashboard; `postvale noc` opens on
+// `wd tui` opens on PageDashboard; `wd noc` opens on
 // PageNoc; future shortcuts can drop the caller anywhere.
 func NewShell(client *api.Client, apiBase string, start ShellPage) Shell {
 	return Shell{
@@ -406,7 +406,7 @@ func (s Shell) View() string {
 			Foreground(lipgloss.Color("#FFFFFF")).
 			Background(colRed).
 			Bold(true).
-			Render("✗ Token rejected by the server. Run `postvale auth login` to re-authenticate.  " +
+			Render("✗ Token rejected by the server. Run `wd auth login` to re-authenticate.  " +
 				"(Browser logout does not revoke CLI tokens; manage at /account.)")
 		page = banner + "\n" + page
 	}

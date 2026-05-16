@@ -32,9 +32,9 @@ builds:
       - arm64
     ldflags:
       - -s -w
-      - -X github.com/WiredepthHQ/wiredepth-cli/internal/version.Version={{.Version}}
-      - -X github.com/WiredepthHQ/wiredepth-cli/internal/version.Commit={{.Commit}}
-      - -X github.com/WiredepthHQ/wiredepth-cli/internal/version.Date={{.Date}}
+      - -X github.com/WiredepthHQ/cli/internal/version.Version={{.Version}}
+      - -X github.com/WiredepthHQ/cli/internal/version.Commit={{.Commit}}
+      - -X github.com/WiredepthHQ/cli/internal/version.Date={{.Date}}
 
 archives:
   - id: default

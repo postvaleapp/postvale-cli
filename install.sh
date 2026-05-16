@@ -12,7 +12,7 @@
 #   POSTVALE_BIN_DIR   target directory (default /usr/local/bin)
 #   POSTVALE_VERSION   pin to a specific version (default latest)
 #
-# Source: https://github.com/WiredepthHQ/wiredepth-cli
+# Source: https://github.com/WiredepthHQ/cli
 
 set -eu
 

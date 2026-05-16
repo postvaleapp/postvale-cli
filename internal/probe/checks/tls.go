@@ -12,7 +12,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/WiredepthHQ/wiredepth-cli/internal/probe"
+	"github.com/WiredepthHQ/cli/internal/probe"
 )
 
 // Expiry-warning thresholds. Mirror the cloud-side TLS check so an

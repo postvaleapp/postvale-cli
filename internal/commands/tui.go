@@ -7,9 +7,9 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/spf13/cobra"
 
-	"github.com/WiredepthHQ/wiredepth-cli/internal/api"
-	"github.com/WiredepthHQ/wiredepth-cli/internal/auth"
-	"github.com/WiredepthHQ/wiredepth-cli/internal/tui"
+	"github.com/WiredepthHQ/cli/internal/api"
+	"github.com/WiredepthHQ/cli/internal/auth"
+	"github.com/WiredepthHQ/cli/internal/tui"
 )
 
 func newTuiCommand() *cobra.Command {
@@ -37,7 +37,7 @@ Start on a specific page with --page <name>:
 			}
 			if _, err := auth.Load(); err != nil && Globals().Token == "" {
 				if errors.Is(err, auth.ErrNotLoggedIn) {
-					return fmt.Errorf("not signed in - run `postvale auth login` first")
+					return fmt.Errorf("not signed in - run `wd auth login` first")
 				}
 				return err
 			}
@@ -51,7 +51,7 @@ Start on a specific page with --page <name>:
 			if _, err := client.Me(); err != nil {
 				if api.IsAuthError(err) {
 					return fmt.Errorf("the stored token was rejected by the server " +
-						"(revoked, expired, or password changed). Run `postvale auth login` to re-authenticate. " +
+						"(revoked, expired, or password changed). Run `wd auth login` to re-authenticate. " +
 						"Browser logout does NOT revoke CLI tokens by design - use /account to revoke")
 				}
 				return fmt.Errorf("could not reach api: %w", err)

@@ -6,8 +6,8 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/WiredepthHQ/wiredepth-cli/internal/api"
-	"github.com/WiredepthHQ/wiredepth-cli/internal/output"
+	"github.com/WiredepthHQ/cli/internal/api"
+	"github.com/WiredepthHQ/cli/internal/output"
 )
 
 func newWatchCommand() *cobra.Command {
@@ -98,7 +98,7 @@ func newWatchListCommand() *cobra.Command {
 
 			if len(domains) == 0 {
 				fmt.Fprintln(cmd.OutOrStdout(), output.StyleDim.Render(
-					"No domains monitored. Add one with `postvale watch add <domain>`.",
+					"No domains monitored. Add one with `wd watch add <domain>`.",
 				))
 				return nil
 			}

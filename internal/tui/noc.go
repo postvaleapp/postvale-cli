@@ -14,7 +14,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
-	"github.com/WiredepthHQ/wiredepth-cli/internal/api"
+	"github.com/WiredepthHQ/cli/internal/api"
 )
 
 // NOC console - mirrors /dashboard/noc on the webapp. Three-pane
@@ -894,7 +894,7 @@ func (m NocModel) renderDomains(maxLines int) string {
 		if m.searchInput != "" {
 			return "\n  " + StyleDim.Render("no matches for /"+m.searchInput) + "\n"
 		}
-		return "\n  " + StyleDim.Render("No monitored domains. Add one with `postvale watch add <domain>`.") + "\n"
+		return "\n  " + StyleDim.Render("No monitored domains. Add one with `wd watch add <domain>`.") + "\n"
 	}
 
 	cursor := m.cursor

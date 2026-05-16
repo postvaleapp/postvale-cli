@@ -11,9 +11,9 @@ import (
 
 	"github.com/mattn/go-isatty"
 
-	"github.com/WiredepthHQ/wiredepth-cli/internal/api"
-	"github.com/WiredepthHQ/wiredepth-cli/internal/auth"
-	"github.com/WiredepthHQ/wiredepth-cli/internal/output"
+	"github.com/WiredepthHQ/cli/internal/api"
+	"github.com/WiredepthHQ/cli/internal/auth"
+	"github.com/WiredepthHQ/cli/internal/output"
 )
 
 func newClient() (*api.Client, error) {

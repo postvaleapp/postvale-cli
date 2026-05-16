@@ -6,7 +6,7 @@ the current shape of the work + what users see at each step.
 ## What landed in v2.0 (this release)
 
 - **Binary rename**: the entry point is now `wd`. The Go module is
-  `github.com/WiredepthHQ/wiredepth-cli`; the binary lives at
+  `github.com/WiredepthHQ/cli`; the binary lives at
   `cmd/wd/`.
 - **Env var rename**: read `WIREDEPTH_API` and `WIREDEPTH_TOKEN`
   first, then fall back to the legacy `POSTVALE_API` /

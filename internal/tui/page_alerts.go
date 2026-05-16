@@ -7,11 +7,11 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
-	"github.com/WiredepthHQ/wiredepth-cli/internal/api"
+	"github.com/WiredepthHQ/cli/internal/api"
 )
 
 // AlertsPage is a read-only list of webhook destinations + their
-// last-fired status. Edits stay on the web (`postvale alerts` shipped
+// last-fired status. Edits stay on the web (`wd alerts` shipped
 // later if needed) so the TUI stays trustworthy as a viewing surface.
 
 type alertsLoadedMsg struct {

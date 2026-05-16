@@ -8,7 +8,7 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// `postvale vendors <domain>` - third-party email-sender inventory
+// `wd vendors <domain>` - third-party email-sender inventory
 // derived from SPF includes + DKIM selectors + MX + DMARC ruf
 // addresses. Same data the vendor workpaper renders against.
 

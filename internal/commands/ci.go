@@ -4,7 +4,7 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// `postvale ci <subcommand>` is a thin preset: every subcommand
+// `wd ci <subcommand>` is a thin preset: every subcommand
 // here forces --quiet, --no-color, and --exit-on-fail on top of
 // the underlying check. Pre-deploy hooks get short summary output
 // + a meaningful exit code without remembering the flag soup.
