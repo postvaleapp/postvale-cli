@@ -1,4 +1,6 @@
 # Compiled binaries
+/wd
+/wd.exe
 /postvale
 /postvale.exe
 /dist/
@@ -17,5 +19,7 @@ coverage.txt
 coverage.html
 
 # Local credentials (in case anyone runs login + stores under repo for testing)
+.wd/
+wd-token.txt
 .postvale/
 postvale-token.txt
