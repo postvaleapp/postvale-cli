@@ -1,16 +1,19 @@
-// wd - WireDepth CLI entry point. Command logic lives in
-// internal/commands.
+// wd - the WireDepth CLI.
+//
+// Entry point. Wires the cobra root, hands off to subcommand
+// packages. Build-time version metadata is injected via -ldflags
+// in goreleaser.yaml.
 package main
 
 import (
 	"fmt"
 	"os"
 
-	"github.com/WiredepthHQ/cli/internal/commands"
+	"github.com/WiredepthHQ/cli/internal/cmd"
 )
 
 func main() {
-	if err := commands.NewRootCommand().Execute(); err != nil {
+	if err := cmd.Execute(); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}

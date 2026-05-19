@@ -1,103 +1,81 @@
 #!/bin/sh
-# Postvale CLI installer.
+# wd CLI installer.
 #
-# Use:
-#   curl -fsSL https://wiredepth.com/install.sh | sh
+# Detects OS + arch, downloads the matching release binary from
+# GitHub, drops it in ~/.local/bin (or /usr/local/bin via sudo if
+# that's not on PATH). Idempotent - re-run to upgrade.
 #
-# Picks the latest GitHub Release binary for the host's OS/arch,
-# verifies the checksum, drops the binary in /usr/local/bin (or
-# $POSTVALE_BIN_DIR if you'd rather put it elsewhere).
+# Usage:
+#   curl -fsSL https://wiredepth.com/cli/install.sh | sh
 #
-# Env vars:
-#   POSTVALE_BIN_DIR   target directory (default /usr/local/bin)
-#   POSTVALE_VERSION   pin to a specific version (default latest)
-#
-# Source: https://github.com/WiredepthHQ/cli
+# Environment overrides:
+#   WD_VERSION    pin a specific version (default: latest)
+#   WD_PREFIX     install dir (default: ~/.local/bin)
 
 set -eu
 
-REPO="WiredepthHQ/wiredepth-cli"
-BIN="postvale"
-BIN_DIR="${POSTVALE_BIN_DIR:-/usr/local/bin}"
+VERSION="${WD_VERSION:-latest}"
+PREFIX="${WD_PREFIX:-$HOME/.local/bin}"
 
-# ---- OS / arch detection ----
+uname_s=$(uname -s | tr '[:upper:]' '[:lower:]')
+uname_m=$(uname -m)
 
-uname_s=$(uname -s 2>/dev/null || echo Unknown)
-uname_m=$(uname -m 2>/dev/null || echo Unknown)
-
-case "$uname_s" in
-  Linux)  os="Linux"  ;;
-  Darwin) os="Darwin" ;;
-  *) echo "unsupported OS: $uname_s (use Homebrew, Scoop, or download manually from https://github.com/$REPO/releases)" >&2; exit 1 ;;
+case "${uname_s}" in
+  darwin)  os=darwin ;;
+  linux)   os=linux ;;
+  msys*|mingw*|cygwin*) os=windows ;;
+  *) echo "unsupported OS: ${uname_s}" >&2; exit 1 ;;
 esac
 
-case "$uname_m" in
-  x86_64|amd64)  arch="x86_64" ;;
-  arm64|aarch64) arch="arm64"  ;;
-  *) echo "unsupported architecture: $uname_m" >&2; exit 1 ;;
+case "${uname_m}" in
+  x86_64|amd64) arch=amd64 ;;
+  aarch64|arm64) arch=arm64 ;;
+  *) echo "unsupported arch: ${uname_m}" >&2; exit 1 ;;
 esac
 
-# ---- Pick version ----
-
-if [ -z "${POSTVALE_VERSION:-}" ]; then
-  # Resolve "latest" via the GH API redirect
-  version=$(curl -fsSLI -o /dev/null -w '%{url_effective}' "https://github.com/$REPO/releases/latest" \
-              | sed -E 's|.*/tag/(v[^/]+)$|\1|')
-  if [ -z "$version" ]; then
+if [ "${VERSION}" = "latest" ]; then
+  # Resolve "latest" via GitHub's HTML redirect; avoids needing
+  # the API (which rate-limits unauthenticated callers).
+  VERSION=$(curl -fsSL -o /dev/null -w '%{url_effective}' \
+    https://github.com/WiredepthHQ/cli/releases/latest \
+    | sed 's|.*/tag/||')
+  if [ -z "${VERSION}" ]; then
     echo "could not resolve latest version" >&2
     exit 1
   fi
-else
-  version="$POSTVALE_VERSION"
 fi
 
-# Reject anything that doesn't look like a semver tag. Stops attempts
-# to smuggle arbitrary path components through POSTVALE_VERSION.
-case "$version" in
-  v[0-9]*.[0-9]*.[0-9]*) : ;;
-  *)
-    echo "invalid version $version (expected vX.Y.Z)" >&2
-    exit 1
-    ;;
-esac
+ext=tar.gz
+if [ "${os}" = "windows" ]; then
+  ext=zip
+fi
 
-# Strip leading v for the archive name
-ver_num="${version#v}"
-archive="postvale_${ver_num}_${os}_${arch}.tar.gz"
-url="https://github.com/$REPO/releases/download/$version/$archive"
-checksum_url="https://github.com/$REPO/releases/download/$version/checksums.txt"
-
-# ---- Download + verify ----
+asset="wd_${VERSION#v}_${os}_${arch}.${ext}"
+url="https://github.com/WiredepthHQ/cli/releases/download/${VERSION}/${asset}"
 
 tmp=$(mktemp -d)
-trap 'rm -rf "$tmp"' EXIT
+trap 'rm -rf "${tmp}"' EXIT
 
-echo "Downloading $archive ..."
-curl -fsSL "$url" -o "$tmp/$archive"
+echo "Downloading ${asset}..."
+curl -fsSL "${url}" -o "${tmp}/${asset}"
 
-echo "Verifying checksum ..."
-curl -fsSL "$checksum_url" -o "$tmp/checksums.txt"
-expected=$(grep "$archive" "$tmp/checksums.txt" | awk '{print $1}')
-if [ -z "$expected" ]; then
-  echo "no checksum entry for $archive" >&2
-  exit 1
-fi
-actual=$( (sha256sum "$tmp/$archive" 2>/dev/null || shasum -a 256 "$tmp/$archive") | awk '{print $1}')
-if [ "$expected" != "$actual" ]; then
-  echo "checksum mismatch: expected $expected, got $actual" >&2
-  exit 1
-fi
-
-# ---- Install ----
-
-tar -xzf "$tmp/$archive" -C "$tmp"
-
-if [ ! -w "$BIN_DIR" ]; then
-  echo "$BIN_DIR is not writable; falling back to sudo install"
-  sudo install -m 0755 "$tmp/$BIN" "$BIN_DIR/$BIN"
+cd "${tmp}"
+if [ "${ext}" = "zip" ]; then
+  unzip -q "${asset}"
 else
-  install -m 0755 "$tmp/$BIN" "$BIN_DIR/$BIN"
+  tar -xzf "${asset}"
 fi
 
-echo "Installed $($BIN_DIR/$BIN version)"
-echo "Run \`postvale help\` to get started."
+mkdir -p "${PREFIX}"
+binary=wd
+[ "${os}" = "windows" ] && binary=wd.exe
+mv "${binary}" "${PREFIX}/${binary}"
+chmod +x "${PREFIX}/${binary}"
+
+echo "Installed wd ${VERSION} to ${PREFIX}/${binary}"
+
+# PATH hint if the install dir isn't on PATH.
+case ":${PATH}:" in
+  *:${PREFIX}:*) ;;
+  *) echo "Hint: ${PREFIX} is not on \$PATH. Add it to your shell's rc file." ;;
+esac

@@ -1,59 +1,49 @@
 # Changelog
 
-All notable changes to the WireDepth CLI are documented here. Format
-follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
-versioning follows [SemVer](https://semver.org/).
+## [Unreleased] - v3.0 clean rewrite
 
-## [Unreleased] - v2.0 surface rename
+Full rewrite. Drops the TUI / probe / extension-billing / NOC
+surface, drops legacy postvale fallback paths, and rebuilds the
+command tree around scriptable-CLI essentials.
 
-### Changed
-- **Binary renamed**: entry point is now `wd` (was `postvale`). The
-  Go module is `github.com/WiredepthHQ/cli`; the binary
-  lives at `cmd/wd/`.
-- **Env vars renamed**: `WIREDEPTH_API` + `WIREDEPTH_TOKEN` are the
-  new names. Legacy `POSTVALE_API` + `POSTVALE_TOKEN` are still
-  read as fallback through v2.2; dropped in v2.3.
-- **Keyring service renamed**: new tokens write under `wiredepth-cli`.
-  Legacy `postvale-cli` keyring entries are read as fallback so
-  existing logins don't break.
-- **Config dir renamed**: `~/.config/wiredepth/` (was
-  `~/.config/postvale/`). Legacy path read as fallback.
-- **API base default**: `https://wiredepth.com` (was `https://postvale.app`).
-- **User-Agent**: `wd-cli/<version>` (was `postvale-cli/<version>`).
+- Phase 1 (this release): public posture checks for any domain
+  without auth - `check`, `tls`, `dmarc`, `dns`, `dnssec`, `caa`,
+  `headers`, `mta-sts`, `subdomains`, `takeover`, `spoofability`,
+  `threat-intel`. All route through `/api/v1/check/<tool>/<domain>`
+  on the WireDepth webapp.
+- Auth scaffolding: `wd auth login` / `logout` / `whoami`. Tokens
+  live in the OS keyring (Keychain / Credential Manager /
+  libsecret); CI uses `WIREDEPTH_TOKEN` env var.
+- Audit chain: `wd audit anchors` lists the published daily
+  Merkle roots; `wd audit verify` is a stub for the JSONL-export
+  verification (algorithm spec at wiredepth.com/docs/verify).
+- Output: human-readable text by default, `--json` for scripting.
 
-### Added
-- `internal/telemetry/`: scaffolding for opt-in CLI usage metrics.
-  Off by default; the API endpoint + privacy-explainer landing
-  ship in v2.0.x. See `docs/v2-migration.md` for the data model.
-- `docs/v2-migration.md`: the full v2 migration plan (this rename
-  is Phase 1; verb-group restructure is v2.1; AI surface v2.2;
-  TUI mode + legacy fallback removal v2.3).
+### Breaking changes from v2.x
 
-## [Pre-rename releases]
+- Binary name remains `wd` (no change)
+- Module path remains `github.com/WiredepthHQ/cli` (no change)
+- All `postvale` / `POSTVALE_*` legacy fallback removed - the
+  rename has been live for weeks; CI / install scripts that still
+  reference the old name should update
+- TUI removed (`wd tui` / `wd noc` / `wd dashboard` no longer
+  exist) - use the web app for the GUI experience
+- On-prem `probe` subcommand removed - WireDepth ships multi-
+  region probes from AWS instead
+- Extension billing CLI removed - manage via the web app
+- AI commands removed from the CLI - the AI playbook lives on
+  per-finding pages in the web app
 
-### Added
-- Initial scaffold: cobra command tree, Lipgloss output, base API client
-- Phase 1 commands: `check`, `tls`, `dmarc`, `dns`, `headers`,
-  `mta-sts`, `bimi`, `dnssec`, `caa`, `subdomains`, `takeover`,
-  `spoof`, `spf flatten`, `reputation`, `scam`, `version`
-- Phase 2 (auth + monitoring + workpapers):
-  - `auth login` / `auth logout` / `auth whoami` (loopback OAuth,
-    OS keyring with file fallback)
-  - `watch <domain>` / `watch list` / `watch remove <domain-or-id>`
-  - `alerts` (lists configured webhook + email endpoints)
-  - `workpaper <type> <domain> [--out path]` (streams PDF)
-- Phase 3 (TUI + CI):
-  - `tui`: Bubbletea dashboard with a domains table, refresh,
-    detail view, in-browser deep-link, help overlay
-  - `ci` subcommands (`ci check`, `ci tls`, `ci dmarc`, `ci dns`,
-    `ci headers`, `ci dnssec`, `ci spoof`, `ci takeover`) which
-    force --quiet, --no-color, --exit-on-fail by default
-- `noc`: live operations console. 3-pane layout (domains table,
-  action queue, scan tail) + top stats strip. Polls /api/v1/
-  dashboard/summary every 30s and /api/v1/scans/recent every 6s
-  with cursor-based incremental fetch. Pause/resume + refresh.
-- Global flags: `--json`, `--quiet`, `--no-color`, `--exit-on-fail`,
-  `--timeout`, `--api`, `--token`, `--config`
-- `POSTVALE_API` + `POSTVALE_TOKEN` env-var fallbacks
-- `NO_COLOR` env-var support per https://no-color.org/
-- MIT licence
+### Why a clean rewrite
+
+The codebase had grown to 64 files + 12k LOC, half of which was
+the Bubble Tea TUI subsystem. A CLI that opens a full-screen
+interactive surface is a different product category from a
+scriptable + composable Unix-style CLI. The rewrite picks the
+latter posture deliberately.
+
+## Previous versions
+
+See git history before this rewrite. v2.x line was the
+postvale-rename intermediate state; v1.x was the original
+postvale-branded CLI.

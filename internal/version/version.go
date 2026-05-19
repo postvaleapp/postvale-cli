@@ -1,9 +1,17 @@
-// Package version holds build stamps. Overridden by -ldflags at
-// release; defaults below keep `go run` readable in dev.
+// Version metadata, injected at build time via -ldflags.
 package version
 
 var (
+	// Semantic version. Set by goreleaser at release time; "dev"
+	// for local builds.
 	Version = "dev"
-	Commit  = "none"
-	Date    = "unknown"
+	// Git commit SHA at build.
+	Commit = "none"
+	// RFC 3339 timestamp at build.
+	Date = "unknown"
 )
+
+// String returns a one-line "wd v1.2.3 (abcdef @ 2026-05-19)" stamp.
+func String() string {
+	return "wd " + Version + " (" + Commit + " @ " + Date + ")"
+}

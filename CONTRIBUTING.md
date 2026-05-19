@@ -1,127 +1,88 @@
-# Contributing
+# Contributing to wd
 
-Thanks for the interest! A few things to know before opening a PR.
+## Style
 
-## Local dev
+- `gofmt -s` clean, `go vet ./...` clean, `go test ./...` clean
+  before push. Pre-commit hook in `.githooks/pre-commit` (run
+  `git config core.hooksPath .githooks` once)
+- Short comments, WHY only. One line preferred, two lines max.
+  Skip the comment entirely if the code is self-explanatory
+- No marketing prose anywhere (commits, comments, README, docs)
+- No em-dashes anywhere. Use ` - `, `. `, `; `, `: `, or
+  parentheses
+- No commented-out code; remove it or extract behind a flag
 
-```sh
-git clone https://github.com/WiredepthHQ/cli.git
-cd postvale-cli
-go build ./...
-go test ./...
-go run ./cmd/postvale --help
+Bad:
+```go
+// GlobalFlags holds the values for the global flags. We use a
+// package-scoped struct so individual commands can read them
+// without having to re-define persistent flags everywhere.
+type GlobalFlags struct {
 ```
 
-Go 1.24+ required.
+Good:
+```go
+// Persistent flag values, populated by cobra before RunE fires.
+type GlobalFlags struct {
+```
 
 ## Project layout
 
 ```
-cmd/postvale/        Entry point - main.go only
-internal/api/        HTTP client to wiredepth.com + typed response shapes
-internal/commands/   Cobra command tree (one file per subcommand)
-internal/output/     Lipgloss styles + per-check renderers + JSON
-internal/version/    Build stamps (overridden via -ldflags at release)
+cmd/wd/             main entry
+internal/
+  api/              HTTP client to wiredepth.com
+  auth/             OS keyring token storage
+  cmd/              cobra subcommand tree
+  config/           config file + env var resolution
+  output/           human-readable + JSON renderers
+  version/          build stamps (set by ldflags)
+docs/               docs published on wiredepth.com/docs
 ```
 
-API contract is documented in [`docs/api-spec.md`](docs/api-spec.md).
+## Adding a check command
 
-## Code style
+The webapp's `/api/v1/check/<tool>/<domain>` endpoint dispatches
+to the right check library. To add a new `wd <tool>` subcommand:
 
-- `gofmt -s` clean (CI checks this).
-- `go vet` clean.
-- Tab indent (Go default).
-- Prefer stdlib over deps. Small focused deps are fine.
-- One package per concern; keep `internal/` flat.
-- No `panic()` in command code - return errors, let cobra handle them.
-- Output renderers never call `os.Exit`; that's the command's job.
+1. Add an entry to the `checks` slice in `internal/cmd/check.go`
+2. Add a tool-specific renderer to `internal/output/render.go`
+   if the default JSON fallback isn't readable enough
+3. No webapp changes needed if the tool is already in the
+   webapp's `ALLOWED_TOOLS` set
 
-## Comments
+## Pre-push checklist
 
-Short. One line preferred, two max. Explain WHY, never WHAT.
+1. `gofmt -s -l .` returns empty
+2. `go vet ./...` clean
+3. `go build ./...` clean
+4. `go test ./...` clean
+5. Em-dash grep returns empty:
+   ```sh
+   LC_ALL=en_US.UTF-8 grep -rnP "[—–]" --include='*.go' \
+     --include='*.md' --include='*.sh' --include='*.yaml' .
+   ```
+6. No hardcoded secrets, tokens, customer domains, or internal
+   URLs in the diff
+7. No `io.ReadAll` on untrusted bodies without `io.LimitReader`
+8. No debug `fmt.Println` left over
+9. Commit message in Conventional Commits
 
-- The code shows what; don't restate it.
-- Skip the comment entirely if the code is self-explanatory.
-- Package-level docstrings: one sentence.
-- Don't list alternatives considered. That goes in a design doc.
+## Release process
 
-## Prose style
+Tags drive releases via goreleaser. To cut `v3.1.0`:
 
-No em-dashes (use ` - `, `. `, `; `, `: `, or parentheses).
-Applies to comments, doc strings, READMEs, and commit messages.
-
-## Security review
-
-Read the diff line by line before pushing. Watch for:
-
-- Hardcoded secrets, tokens, customer data, internal URLs
-- Unbounded reads (`io.ReadAll` on untrusted bodies; use
-  `io.LimitReader`)
-- Unvalidated user input reaching HTTP, filesystem, or exec paths
-- New dependencies that haven't been vetted (license, last
-  maintenance, transitive deps)
-- Debug `fmt.Println` / `log.Printf` or commented-out code
-- TLS skip-verify or insecure defaults
-
-CLI-specific:
-
-- File path arguments must not allow reads outside what the user
-  asked for (no glob expansion on untrusted input, no symlink-
-  following without intent).
-- `--token` on a shell command line is visible in `ps aux`.
-  Docs must point users at env vars or stored credentials.
-- The API base URL is user-supplied via `--api`; always re-parse
-  via `url.Parse` and check scheme/host before use.
-- Response parsing must tolerate malformed/missing fields without
-  crashing.
-
-## Dependencies
-
-Run `go mod tidy` before every commit. New dep checklist:
-
-- License compatible with MIT (MIT, BSD-2/3, Apache-2.0, ISC, MPL-2.0)
-- Active maintenance (commits in last 12 months)
-- Reasonable transitive footprint
-- No known CVEs (`govulncheck ./...` before push)
-
-## Adding a new check command
-
-1. Add the API method in `internal/api/checks.go` with its response type
-2. Add the renderer in `internal/output/check.go`
-3. Add the command in `internal/commands/<name>.go` (copy `tls.go` as a template)
-4. Wire it into `NewRootCommand()` in `internal/commands/root.go`
-5. Add the entry to `README.md` and `CHANGELOG.md`
-
-## Tests
-
-- New exported function: add a test
-- Parsers / formatters: table-driven
-- Integration tests against a real Postvale instance go in
-  `tests/e2e/` and are gated by `POSTVALE_E2E=1`
-
-## Commits
-
-[Conventional Commits](https://www.conventionalcommits.org/). Lower
-case. Imperative mood.
-
-```
-feat(commands): add postvale watch
-fix(api): handle 429 rate-limit response
-chore: bump cobra to v1.10.2
-docs: clarify CI integration example
+```sh
+git tag v3.1.0
+git push origin v3.1.0
 ```
 
-First line under 72 chars. Empty line + body if more context is
-needed.
-
-## Releases
-
-- SemVer; `v0.x.y` while pre-1.0, breaking changes allowed in
-  minor bumps.
-- Tagging `vX.Y.Z` triggers GoReleaser via
-  `.github/workflows/release.yml`.
-- Update `CHANGELOG.md` in the same commit as the tag.
+GitHub Actions builds binaries for darwin/linux/windows on amd64
++ arm64 and publishes them to the
+[releases page](https://github.com/WiredepthHQ/cli/releases).
+The install.sh + the wiredepth.com/cli page both point at the
+latest release.
 
 ## License
 
-By contributing you agree your work is licensed under MIT.
+MIT. By contributing you agree your work is licensed under MIT.
