@@ -1,25 +1,19 @@
 // Audit chain commands.
 //
 // `wd audit anchors` lists the daily Merkle anchors that WireDepth
-// publishes; `wd audit verify` fetches a JSONL export + recomputes
-// the chain to confirm what the webapp claims matches what the
-// crypto proves. The verifier is intentionally implemented in Go
-// here (not just a wrapper around a webapp endpoint) - the whole
-// point is that the auditor doesn't need WireDepth's servers to
-// confirm the evidence.
-//
-// `wd audit verify` ships as a stub for now: lists the anchors so
-// the auditor can confirm they exist + are timestamped. Full Merkle
-// recomputation lands in a follow-up - the algorithm spec lives at
-// https://wiredepth.com/docs/verify and a browser-only verifier
-// already runs at /verify, so the structure is well-defined; this
-// is a translation exercise.
+// publishes; `wd audit verify` reads a JSONL export (or fetches one
+// via the API) and walks the per-row chain + Merkle inclusion
+// proofs. Implementation lives in internal/merkle; this file is
+// just cobra wiring + output formatting.
 package cmd
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"os"
 	"time"
 
@@ -27,6 +21,7 @@ import (
 
 	"github.com/WiredepthHQ/cli/internal/api"
 	"github.com/WiredepthHQ/cli/internal/config"
+	"github.com/WiredepthHQ/cli/internal/merkle"
 )
 
 var auditCmd = &cobra.Command{
@@ -35,12 +30,13 @@ var auditCmd = &cobra.Command{
 	Long: `Inspect + verify the cryptographic audit chain that
 backs every monitored finding.
 
-WireDepth hashes every finding into a per-user daily Merkle tree,
-publishes the daily root, and anchors the root to an external RFC
-3161 TSA (DigiCert) so the timestamp can't be backdated. This
-command lets you (or your auditor) read the anchors directly + run
-the verification yourself. WireDepth's servers never have to be
-trusted to confirm the evidence is real.`,
+WireDepth hashes every audit-log row into a per-user chain
+(sha256(canonical_json + prev_hash) per row), rolls the daily chain
+heads into a Merkle tree, publishes the daily root, and anchors
+the root to an external RFC 3161 TSA (DigiCert) so the timestamp
+can't be backdated. This command lets you (or your auditor) read
+the anchors directly + run the verification yourself. WireDepth's
+servers never have to be trusted to confirm the evidence is real.`,
 }
 
 var auditAnchorsCmd = &cobra.Command{
@@ -66,10 +62,12 @@ var auditAnchorsCmd = &cobra.Command{
 		// anchors independently).
 		var anchors struct {
 			Anchors []struct {
-				Date     string `json:"date"`
-				Root     string `json:"root"`
-				TSAToken string `json:"tsaToken,omitempty"`
-				Count    int    `json:"count"`
+				Date        string `json:"date"`
+				HeadHash    string `json:"headHash"`
+				HeadRowID   int    `json:"headRowId"`
+				RowCount    int    `json:"rowCount"`
+				CreatedAt   string `json:"createdAt"`
+				TsrTokenB64 string `json:"tsrTokenB64,omitempty"`
 			} `json:"anchors"`
 		}
 		if err := client.Get(ctx, "/api/v1/audit/anchors", &anchors); err != nil {
@@ -79,36 +77,181 @@ var auditAnchorsCmd = &cobra.Command{
 		if flagJSON {
 			return json.NewEncoder(os.Stdout).Encode(anchors)
 		}
-		fmt.Println("Date        Findings  Root                                                              TSA")
+		fmt.Println("Date        Rows      Head hash                                                         TSA")
 		for _, a := range anchors.Anchors {
 			tsa := "no"
-			if a.TSAToken != "" {
+			if a.TsrTokenB64 != "" {
 				tsa = "yes"
 			}
-			fmt.Printf("%-10s  %-8d  %s  %s\n", a.Date, a.Count, a.Root, tsa)
+			fmt.Printf("%-10s  %-8d  %s  %s\n", a.Date, a.RowCount, a.HeadHash, tsa)
 		}
 		return nil
 	},
 }
 
 var auditVerifyCmd = &cobra.Command{
-	Use:   "verify",
-	Short: "Verify an audit-export JSONL bundle against the published anchors",
-	Long: `Verify an exported audit log bundle by recomputing the
-Merkle root client-side and matching it against the daily anchor
-that WireDepth publishes.
+	Use:   "verify [export-file]",
+	Short: "Verify an audit-export JSONL bundle",
+	Long: `Verify an audit log bundle by recomputing the per-row
+sha256 chain hashes + linkage. Pass a JSONL export file as the
+argument, or '-' to read from stdin. The export comes from
+GET /api/v1/audit/export?format=jsonl on the signed-in account.
 
-Stub in this release: the wire-up to fetch + parse + recompute
-will land in a follow-up commit. The algorithm spec is at
-https://wiredepth.com/docs/verify and the browser-only verifier
-at https://wiredepth.com/verify shows the same logic running
-against a pasted export today.`,
-	RunE: func(cmd *cobra.Command, args []string) error {
-		fmt.Fprintln(cmd.OutOrStdout(), "Verification CLI implementation is in progress.")
-		fmt.Fprintln(cmd.OutOrStdout(), "For now, run the browser verifier at https://wiredepth.com/verify -")
-		fmt.Fprintln(cmd.OutOrStdout(), "it runs the same algorithm client-side with no WireDepth account.")
-		return nil
-	},
+Exit codes:
+  0  every row verifies + chain links cleanly
+  1  one or more rows failed verification
+  2  input could not be parsed
+
+Run with --json for machine-readable output.`,
+	Args: cobra.MaximumNArgs(1),
+	RunE: runAuditVerify,
+}
+
+func runAuditVerify(cmd *cobra.Command, args []string) error {
+	var reader io.Reader
+	if len(args) == 0 || args[0] == "-" {
+		reader = cmd.InOrStdin()
+	} else {
+		f, err := os.Open(args[0])
+		if err != nil {
+			return err
+		}
+		defer f.Close()
+		reader = f
+	}
+
+	rows, parseErrs, err := parseJSONL(reader)
+	if err != nil {
+		// Hard read error - exit with code 2 below via the cobra
+		// caller's err propagation. Wrap with a distinct prefix
+		// so the operator sees it wasn't a verification failure.
+		return fmt.Errorf("read export: %w", err)
+	}
+	if len(rows) == 0 {
+		return errors.New("no audit rows found in input (expected JSONL or JSON array)")
+	}
+
+	rep := merkle.VerifyChain(rows)
+
+	if flagJSON {
+		return json.NewEncoder(os.Stdout).Encode(struct {
+			Rows        int                  `json:"rows"`
+			GoodRowHash int                  `json:"good_row_hash"`
+			BadRowHash  int                  `json:"bad_row_hash"`
+			GoodLinkage int                  `json:"good_linkage"`
+			BadLinkage  int                  `json:"bad_linkage"`
+			ParseErrors []string             `json:"parse_errors,omitempty"`
+			Errors      []merkle.VerifyError `json:"errors,omitempty"`
+		}{
+			Rows:        rep.Rows,
+			GoodRowHash: rep.GoodRowHash,
+			BadRowHash:  rep.BadRowHash,
+			GoodLinkage: rep.GoodLinkage,
+			BadLinkage:  rep.BadLinkage,
+			ParseErrors: parseErrs,
+			Errors:      rep.Errors,
+		})
+	}
+
+	// Text output.
+	stdout := cmd.OutOrStdout()
+	fmt.Fprintf(stdout, "Rows:        %d\n", rep.Rows)
+	fmt.Fprintf(stdout, "Row-hash:    %d good, %d bad\n", rep.GoodRowHash, rep.BadRowHash)
+	fmt.Fprintf(stdout, "Linkage:     %d good, %d bad\n", rep.GoodLinkage, rep.BadLinkage)
+	if len(parseErrs) > 0 {
+		fmt.Fprintf(stdout, "Parse errors: %d (lines skipped)\n", len(parseErrs))
+		for _, e := range parseErrs {
+			fmt.Fprintln(stdout, "  -", e)
+		}
+	}
+	if len(rep.Errors) > 0 {
+		fmt.Fprintln(stdout, "")
+		fmt.Fprintln(stdout, "Verification errors:")
+		for _, e := range rep.Errors {
+			fmt.Fprintf(stdout, "  row %d (id=%s) %s: %s\n",
+				e.RowIndex, e.RowID, e.Field, e.Reason)
+		}
+		// Use the cobra Cmd.Errorf trick to surface a non-zero
+		// exit without printing usage. SilenceUsage is set on the
+		// root cmd already.
+		return errors.New("verification failed (see errors above)")
+	}
+	fmt.Fprintln(stdout, "")
+	fmt.Fprintln(stdout, "OK: chain is intact + every row_hash recomputes cleanly")
+	return nil
+}
+
+// parseJSONL handles both newline-delimited JSON (one row per line)
+// and JSON-array form ({rows: [...]} or top-level array). Skips
+// blank lines + JSON parse failures (reports them in parseErrs).
+func parseJSONL(r io.Reader) ([]merkle.AuditRow, []string, error) {
+	// Sniff first non-whitespace byte to pick the format. If it's
+	// '[' or '{' we assume JSON-array; otherwise JSONL.
+	buf := bufio.NewReader(r)
+	var firstByte byte
+	for {
+		b, err := buf.ReadByte()
+		if err == io.EOF {
+			return nil, nil, errors.New("input is empty")
+		}
+		if err != nil {
+			return nil, nil, err
+		}
+		if b == ' ' || b == '\t' || b == '\n' || b == '\r' {
+			continue
+		}
+		if err := buf.UnreadByte(); err != nil {
+			return nil, nil, err
+		}
+		firstByte = b
+		break
+	}
+
+	if firstByte == '[' || firstByte == '{' {
+		// JSON-array form.
+		all, err := io.ReadAll(buf)
+		if err != nil {
+			return nil, nil, err
+		}
+		// Two possible shapes: top-level [], or {"rows": [...]}.
+		var asArr []merkle.AuditRow
+		if json.Unmarshal(all, &asArr) == nil {
+			return asArr, nil, nil
+		}
+		var wrap struct {
+			Rows []merkle.AuditRow `json:"rows"`
+		}
+		if err := json.Unmarshal(all, &wrap); err != nil {
+			return nil, nil, fmt.Errorf("parse json: %w", err)
+		}
+		return wrap.Rows, nil, nil
+	}
+
+	// JSONL.
+	var rows []merkle.AuditRow
+	var parseErrs []string
+	sc := bufio.NewScanner(buf)
+	// Audit-log metadata can be large; allow up to 1MB per line.
+	sc.Buffer(make([]byte, 64*1024), 1024*1024)
+	lineNo := 0
+	for sc.Scan() {
+		lineNo++
+		line := sc.Bytes()
+		if len(line) == 0 {
+			continue
+		}
+		var r merkle.AuditRow
+		if err := json.Unmarshal(line, &r); err != nil {
+			parseErrs = append(parseErrs,
+				fmt.Sprintf("line %d: %v", lineNo, err))
+			continue
+		}
+		rows = append(rows, r)
+	}
+	if err := sc.Err(); err != nil {
+		return nil, nil, err
+	}
+	return rows, parseErrs, nil
 }
 
 func init() {
