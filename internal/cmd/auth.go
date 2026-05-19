@@ -1,17 +1,20 @@
 // Auth subcommands: login / logout / whoami.
 //
-// Login is a browser-based device-code-style flow:
-//  1. CLI POSTs to /api/v1/cli/start, gets a one-time URL + poll
-//     token
-//  2. CLI opens the URL in the user's browser (or prints it if we
-//     can't); the user signs in + approves the CLI
-//  3. CLI polls /api/v1/cli/exchange with the poll token until the
-//     webapp returns the API token
-//  4. Token lands in the OS keyring; not on the filesystem
+// Default login is browser-based loopback flow (mirrors GitHub CLI,
+// Vercel CLI):
+//  1. CLI spins up an HTTP listener on 127.0.0.1:<random-port>.
+//  2. CLI opens browser to /cli-auth on the webapp with cb=<loop-
+//     back URL>, state=<random>, label=<host hint>.
+//  3. User signs in (if needed) + clicks Allow on the consent page.
+//  4. Consent form POSTs /api/v1/cli/exchange; server mints a token
+//     + returns the redirect URL with token + state baked in.
+//  5. Browser navigates to the cb URL; CLI listener captures the
+//     token, verifies state matches, stores in OS keyring.
+//  6. Listener writes a "you can close this tab" HTML page; the CLI
+//     prints "Logged in" and exits.
 //
-// Implementation stub: this commit ships the cobra command shell +
-// keyring plumbing. The browser-flow wire calls land in a follow-up
-// once the webapp's /api/v1/cli/* endpoints are confirmed.
+// For headless / CI use, --token=PASTED or `wd auth login < token-file`
+// skips the browser flow entirely.
 package cmd
 
 import (
@@ -30,29 +33,84 @@ var authCmd = &cobra.Command{
 	Short: "Sign in / out + check identity",
 }
 
+var (
+	authLoginFlagToken     string
+	authLoginFlagLabel     string
+	authLoginFlagNoBrowser bool
+)
+
 var authLoginCmd = &cobra.Command{
 	Use:   "login",
 	Short: "Browser-based sign-in (stores token in OS keyring)",
+	Long: `Open the user's default browser to the WireDepth consent
+page; capture the minted API token via a loopback HTTP listener
+on 127.0.0.1:<random-port>; store the token in the OS keyring
+(Keychain on macOS, Credential Manager on Windows, libsecret on
+Linux).
+
+For non-interactive use (CI, headless boxes), pass --token to skip
+the browser flow:
+
+  wd auth login --token "$(cat /run/secrets/wd-token)"
+
+Or set WIREDEPTH_TOKEN in the environment - higher priority than
+the keyring; no need to call login at all.`,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		// TODO: wire to /api/v1/cli/start + /api/v1/cli/exchange.
-		// For now, support the manual paste-in token path so
-		// scripted setup (CI, container images) works without
-		// browser interaction.
-		fmt.Fprintln(cmd.OutOrStdout(), "Paste a token from https://wiredepth.com/account/api-keys")
-		fmt.Fprint(cmd.OutOrStdout(), "Token: ")
-		var token string
-		_, err := fmt.Fscanln(cmd.InOrStdin(), &token)
+		cfg, err := config.Load()
 		if err != nil {
 			return err
 		}
-		token = strings.TrimSpace(token)
-		if token == "" {
-			return errors.New("no token provided")
+		if flagAPI != "" {
+			cfg.API = flagAPI
 		}
-		if err := auth.SaveToken(token); err != nil {
+
+		// Token-paste path: no browser, just save the provided
+		// value. Useful for CI / containers / "I generated a
+		// token in the webapp + want to install it locally".
+		if authLoginFlagToken != "" {
+			token := strings.TrimSpace(authLoginFlagToken)
+			if token == "" {
+				return errors.New("--token is empty")
+			}
+			if err := auth.SaveToken(token); err != nil {
+				return fmt.Errorf("save token: %w", err)
+			}
+			fmt.Fprintln(cmd.OutOrStdout(), "Token saved to keyring.")
+			return nil
+		}
+
+		// --no-browser falls back to the original paste-in
+		// path, for environments where loopback listeners are
+		// firewalled.
+		if authLoginFlagNoBrowser {
+			fmt.Fprintln(cmd.OutOrStdout(),
+				"Generate an API key at",
+				strings.TrimRight(cfg.API, "/")+"/account/api-keys")
+			fmt.Fprint(cmd.OutOrStdout(), "Paste token: ")
+			var token string
+			if _, err := fmt.Fscanln(cmd.InOrStdin(), &token); err != nil {
+				return err
+			}
+			token = strings.TrimSpace(token)
+			if token == "" {
+				return errors.New("no token provided")
+			}
+			if err := auth.SaveToken(token); err != nil {
+				return fmt.Errorf("save token: %w", err)
+			}
+			fmt.Fprintln(cmd.OutOrStdout(), "Token saved to keyring.")
+			return nil
+		}
+
+		// Browser flow.
+		res, err := auth.RunBrowserLogin(cfg.API, authLoginFlagLabel)
+		if err != nil {
+			return fmt.Errorf("browser login: %w", err)
+		}
+		if err := auth.SaveToken(res.Token); err != nil {
 			return fmt.Errorf("save token: %w", err)
 		}
-		fmt.Fprintln(cmd.OutOrStdout(), "Token saved to keyring.")
+		fmt.Fprintln(cmd.OutOrStdout(), "Logged in. Token saved to keyring.")
 		return nil
 	},
 }
@@ -94,6 +152,12 @@ var authWhoamiCmd = &cobra.Command{
 }
 
 func init() {
+	authLoginCmd.Flags().StringVar(&authLoginFlagToken, "token", "",
+		"API token to store (skips browser flow; for CI / non-interactive use)")
+	authLoginCmd.Flags().StringVar(&authLoginFlagLabel, "label", "",
+		"label for the new token (defaults to 'wd CLI on <hostname>')")
+	authLoginCmd.Flags().BoolVar(&authLoginFlagNoBrowser, "no-browser", false,
+		"skip the browser flow + paste a token by hand instead")
 	authCmd.AddCommand(authLoginCmd, authLogoutCmd, authWhoamiCmd)
 	rootCmd.AddCommand(authCmd)
 }
