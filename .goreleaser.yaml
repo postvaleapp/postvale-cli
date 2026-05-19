@@ -1,0 +1,143 @@
+# goreleaser config for the wd CLI.
+#
+# Fired by .github/workflows/release.yml on every tag matching v*.
+# Builds darwin / linux / windows binaries for amd64 + arm64,
+# packages them as tar.gz (zip for Windows), generates checksums,
+# publishes to the GitHub release page.
+#
+# Homebrew tap + Scoop bucket are commented out until those repos
+# exist; uncomment + add the HOMEBREW_TAP_TOKEN + SCOOP_BUCKET_TOKEN
+# secrets when shipping the brew + scoop install paths.
+
+version: 2
+
+project_name: wd
+
+before:
+  hooks:
+    - go mod tidy
+    - go test ./...
+
+builds:
+  - id: wd
+    main: ./cmd/wd
+    binary: wd
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - darwin
+      - linux
+      - windows
+    goarch:
+      - amd64
+      - arm64
+    ldflags:
+      # Inject build metadata into internal/version. Matches the
+      # var names declared in internal/version/version.go.
+      - -s -w
+      - -X github.com/WiredepthHQ/cli/internal/version.Version={{.Version}}
+      - -X github.com/WiredepthHQ/cli/internal/version.Commit={{.ShortCommit}}
+      - -X github.com/WiredepthHQ/cli/internal/version.Date={{.Date}}
+
+archives:
+  - id: wd
+    formats: [tar.gz]
+    # Match the file-name pattern that install.sh expects:
+    # wd_<version-no-v>_<os>_<arch>.<tar.gz|zip>
+    name_template: >-
+      {{ .ProjectName }}_
+      {{- .Version }}_
+      {{- if eq .Os "darwin" }}darwin
+      {{- else if eq .Os "linux" }}linux
+      {{- else if eq .Os "windows" }}windows
+      {{- end }}_
+      {{- .Arch }}
+    format_overrides:
+      - goos: windows
+        formats: [zip]
+    files:
+      - LICENSE
+      - README.md
+      - CHANGELOG.md
+
+checksum:
+  name_template: 'checksums.txt'
+
+snapshot:
+  version_template: '{{ incpatch .Version }}-dev'
+
+changelog:
+  use: github
+  sort: asc
+  groups:
+    - title: Features
+      regexp: '^.*?feat(\(.+\))??!?:.+$'
+      order: 0
+    - title: Bug fixes
+      regexp: '^.*?fix(\(.+\))??!?:.+$'
+      order: 1
+    - title: Tests
+      regexp: '^.*?test(\(.+\))??!?:.+$'
+      order: 2
+    - title: Docs
+      regexp: '^.*?docs(\(.+\))??!?:.+$'
+      order: 3
+    - title: Other
+      order: 999
+  filters:
+    exclude:
+      - '^chore:'
+      - '^style:'
+
+release:
+  github:
+    owner: WiredepthHQ
+    name: cli
+  draft: false
+  prerelease: auto
+  name_template: 'wd {{ .Tag }}'
+  header: |
+    ## wd {{ .Tag }}
+
+    The WireDepth CLI. MIT licensed. Source at
+    https://github.com/WiredepthHQ/cli.
+
+    ### Install
+    ```
+    curl -fsSL https://wiredepth.com/cli/install.sh | sh
+    ```
+
+    ### Pin this version
+    ```
+    WD_VERSION={{ .Tag }} curl -fsSL https://wiredepth.com/cli/install.sh | sh
+    ```
+  footer: |
+    ---
+    Issues + feature requests:
+    https://github.com/WiredepthHQ/cli/issues
+
+# Homebrew tap + Scoop bucket - uncomment after creating
+# WiredepthHQ/homebrew-tap + WiredepthHQ/scoop-bucket and setting
+# the corresponding tokens in the cli repo's Actions secrets.
+#
+# brews:
+#   - name: wd
+#     repository:
+#       owner: WiredepthHQ
+#       name: homebrew-tap
+#       token: '{{ .Env.HOMEBREW_TAP_TOKEN }}'
+#     homepage: https://wiredepth.com/cli
+#     description: WireDepth CLI - posture checks + audit-chain verification
+#     license: MIT
+#     install: |
+#       bin.install "wd"
+#
+# scoops:
+#   - name: wd
+#     repository:
+#       owner: WiredepthHQ
+#       name: scoop-bucket
+#       token: '{{ .Env.SCOOP_BUCKET_TOKEN }}'
+#     homepage: https://wiredepth.com/cli
+#     description: WireDepth CLI
+#     license: MIT
